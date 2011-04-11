@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="com.android.keychain"
+          android:sharedUserId="android.uid.keychain"
+          android:sharedUserLabel="@string/keychainUserLabel"
+          >
+    <uses-permission android:name="android.permission.GET_ACCOUNTS"/>
+    <uses-permission android:name="android.permission.AUTHENTICATE_ACCOUNTS"/>
+    <application>
+        <service android:name="com.android.keychain.KeyChainService">
+            <intent-filter>
+                <action android:name="android.security.IKeyChainService"/>
+                <action android:name="android.accounts.AccountAuthenticator"/>
+            </intent-filter>
+            <meta-data android:name="android.accounts.AccountAuthenticator"
+                       android:resource="@xml/authenticator"/>
+        </service>
+        <activity android:name="com.android.keychain.KeyChainActivity"
+		  android:excludeFromRecents="true">
+	    <intent-filter>
+	        <action android:name="com.android.keychain.CHOOSER"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
+  </application>
+</manifest>
