@@ -20,27 +20,29 @@ import android.accounts.AbstractAccountAuthenticator;
 import android.accounts.Account;
 import android.accounts.AccountAuthenticatorResponse;
 import android.accounts.AccountManager;
+import android.accounts.AccountsException;
 import android.accounts.NetworkErrorException;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.os.RemoteException;
 import android.security.Credentials;
 import android.security.IKeyChainService;
 import android.security.KeyChain;
 import android.security.KeyStore;
 import android.util.Log;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.Charsets;
 import java.security.SecureRandom;
-import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.util.Collections;
 import javax.security.auth.x500.X500Principal;
 import org.apache.harmony.luni.util.Base64;
+import org.apache.harmony.xnet.provider.jsse.TrustedCertificateStore;
 
 public class KeyChainService extends Service {
 
@@ -59,12 +61,14 @@ public class KeyChainService extends Service {
     private final IKeyChainService.Stub mIKeyChainService = new IKeyChainService.Stub() {
 
         private final KeyStore mKeyStore = KeyStore.getInstance();
+        private final TrustedCertificateStore mTrustedCertificateStore
+                = new TrustedCertificateStore();
 
         private boolean isKeyStoreUnlocked() {
             return (mKeyStore.test() == KeyStore.NO_ERROR);
         }
 
-        @Override public byte[] getPrivate(String alias, String authToken) throws RemoteException {
+        @Override public byte[] getPrivate(String alias, String authToken) {
             if (alias == null) {
                 throw new NullPointerException("alias == null");
             }
@@ -85,17 +89,14 @@ public class KeyChainService extends Service {
             return bytes;
         }
 
-        @Override public byte[] getCertificate(String alias, String authToken)
-                throws RemoteException {
+        @Override public byte[] getCertificate(String alias, String authToken) {
             return getCert(Credentials.USER_CERTIFICATE, alias, authToken);
         }
-        @Override public byte[] getCaCertificate(String alias, String authToken)
-                throws RemoteException {
+        @Override public byte[] getCaCertificate(String alias, String authToken) {
             return getCert(Credentials.CA_CERTIFICATE, alias, authToken);
         }
 
-        private byte[] getCert(String type, String alias, String authToken)
-                throws RemoteException {
+        private byte[] getCert(String type, String alias, String authToken) {
             if (alias == null) {
                 throw new NullPointerException("alias == null");
             }
@@ -144,9 +145,7 @@ public class KeyChainService extends Service {
                 byte[] bytes = mKeyStore.get(alias);
                 try {
                     // TODO we could at least cache the byte to cert parsing
-                    CertificateFactory cf = CertificateFactory.getInstance("X.509");
-                    Certificate ca = cf.generateCertificate(new ByteArrayInputStream(bytes));
-                    X509Certificate caCert = (X509Certificate) ca;
+                    X509Certificate caCert = parseCertificate(bytes);
                     if (issuer.equals(caCert.getSubjectX500Principal())) {
                         // will throw exception on failure to verify.
                         // this can happen if there are two CAs with
@@ -162,11 +161,80 @@ public class KeyChainService extends Service {
             return null;
         }
 
+        private X509Certificate parseCertificate(byte[] bytes) throws CertificateException {
+            CertificateFactory cf = CertificateFactory.getInstance("X.509");
+            return (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(bytes));
+        }
+
         private byte[] concatenate(byte[] a, byte[] b) {
             byte[] result = new byte[a.length + b.length];
             System.arraycopy(a, 0, result, 0, a.length);
             System.arraycopy(b, 0, result, a.length, b.length);
             return result;
+        }
+
+        @Override public void installCaCertificate(byte[] caCertificate) {
+            // only the CertInstaller should be able to add new trusted CAs
+            final String expectedPackage = "com.android.certinstaller";
+            final String actualPackage = getPackageManager().getNameForUid(getCallingUid());
+            if (!expectedPackage.equals(actualPackage)) {
+                throw new IllegalStateException(actualPackage);
+            }
+            try {
+                synchronized (mTrustedCertificateStore) {
+                    mTrustedCertificateStore.installCertificate(parseCertificate(caCertificate));
+                }
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            } catch (CertificateException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+        @Override public boolean reset() {
+            // only Settings should be able to reset
+            final String expectedPackage = "android.uid.system:1000";
+            final String actualPackage = getPackageManager().getNameForUid(getCallingUid());
+            if (!expectedPackage.equals(actualPackage)) {
+                throw new IllegalStateException(actualPackage);
+            }
+            boolean ok = true;
+
+            synchronized (mAccountLock) {
+                // remote Accounts from AccountManager to revoke any
+                // granted credential grants to applications
+                Account[] accounts = mAccountManager.getAccountsByType(KeyChain.ACCOUNT_TYPE);
+                for (Account a : accounts) {
+                    try {
+                        if (!mAccountManager.removeAccount(a, null, null).getResult()) {
+                            ok = false;
+                        }
+                    } catch (AccountsException e) {
+                        Log.w(TAG, "Problem removing account " + a, e);
+                        ok = false;
+                    } catch (IOException e) {
+                        Log.w(TAG, "Problem removing account " + a, e);
+                        ok = false;
+                    }
+                }
+            }
+
+            synchronized (mTrustedCertificateStore) {
+                // delete user-installed CA certs
+                for (String alias : mTrustedCertificateStore.aliases()) {
+                    if (TrustedCertificateStore.isUser(alias)) {
+                        try {
+                            mTrustedCertificateStore.deleteCertificateEntry(alias);
+                        } catch (IOException e) {
+                            Log.w(TAG, "Problem removing CA certificate " + alias, e);
+                            ok = false;
+                        } catch (CertificateException e) {
+                            Log.w(TAG, "Problem removing CA certificate " + alias, e);
+                            ok = false;
+                        }
+                    }
+                }
+                return ok;
+            }
         }
     };
 
