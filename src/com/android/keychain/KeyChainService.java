@@ -64,39 +64,15 @@ public class KeyChainService extends Service {
         private final TrustedCertificateStore mTrustedCertificateStore
                 = new TrustedCertificateStore();
 
-        private boolean isKeyStoreUnlocked() {
-            return (mKeyStore.test() == KeyStore.NO_ERROR);
-        }
-
-        @Override public byte[] getPrivate(String alias, String authToken) {
-            if (alias == null) {
-                throw new NullPointerException("alias == null");
-            }
-            if (authToken == null) {
-                throw new NullPointerException("authToken == null");
-            }
-            if (!isKeyStoreUnlocked()) {
-                throw new IllegalStateException("keystore locked");
-            }
-            if (!mAccountManager.peekAuthToken(mAccount, alias).equals(authToken)) {
-                throw new IllegalStateException("authtoken mismatch");
-            }
-            String key = Credentials.USER_PRIVATE_KEY + alias;
-            byte[] bytes = mKeyStore.get(key.getBytes(Charsets.UTF_8));
-            if (bytes == null) {
-                throw new IllegalStateException("keystore value missing");
-            }
-            return bytes;
+        @Override public byte[] getPrivateKey(String alias, String authToken) {
+            return getKeyStoreEntry(Credentials.USER_PRIVATE_KEY, alias, authToken);
         }
 
         @Override public byte[] getCertificate(String alias, String authToken) {
-            return getCert(Credentials.USER_CERTIFICATE, alias, authToken);
-        }
-        @Override public byte[] getCaCertificate(String alias, String authToken) {
-            return getCert(Credentials.CA_CERTIFICATE, alias, authToken);
+            return getKeyStoreEntry(Credentials.USER_CERTIFICATE, alias, authToken);
         }
 
-        private byte[] getCert(String type, String alias, String authToken) {
+        private byte[] getKeyStoreEntry(String type, String alias, String authToken) {
             if (alias == null) {
                 throw new NullPointerException("alias == null");
             }
@@ -106,10 +82,7 @@ public class KeyChainService extends Service {
             if (!isKeyStoreUnlocked()) {
                 throw new IllegalStateException("keystore locked");
             }
-            String authAlias = (type.equals(Credentials.CA_CERTIFICATE))
-                    ? (alias + KeyChain.CA_SUFFIX)
-                    : alias;
-            if (!mAccountManager.peekAuthToken(mAccount, authAlias).equals(authToken)) {
+            if (!mAccountManager.peekAuthToken(mAccount, alias).equals(authToken)) {
                 throw new IllegalStateException("authtoken mismatch");
             }
             String key = type + alias;
@@ -120,57 +93,8 @@ public class KeyChainService extends Service {
             return bytes;
         }
 
-        @Override public String findIssuer(Bundle bundle) {
-            if (bundle == null) {
-                throw new NullPointerException("bundle == null");
-            }
-            X509Certificate cert = KeyChain.toCertificate(bundle);
-            if (cert == null) {
-                throw new IllegalArgumentException("no cert in bundle");
-            }
-            X500Principal issuer = cert.getIssuerX500Principal();
-            if (issuer == null) {
-                throw new IllegalStateException();
-            }
-            byte[] aliasPrefix = Credentials.CA_CERTIFICATE.getBytes(Charsets.UTF_8);
-            byte[][] aliasSuffixes = mKeyStore.saw(aliasPrefix);
-            if (aliasSuffixes == null) {
-                return null;
-            }
-
-            // TODO if the keystore would notify us of changes, we
-            // could cache the certs and perform a lookup by issuer
-            for (byte[] aliasSuffix : aliasSuffixes) {
-                byte[] alias = concatenate(aliasPrefix, aliasSuffix);
-                byte[] bytes = mKeyStore.get(alias);
-                try {
-                    // TODO we could at least cache the byte to cert parsing
-                    X509Certificate caCert = parseCertificate(bytes);
-                    if (issuer.equals(caCert.getSubjectX500Principal())) {
-                        // will throw exception on failure to verify.
-                        // this can happen if there are two CAs with
-                        // the same name but with different public
-                        // keys, which does in fact happen, so we will
-                        // try to continue and not just fail fast.
-                        cert.verify(caCert.getPublicKey());
-                        return new String(aliasSuffix, Charsets.UTF_8);
-                    }
-                } catch (Exception ignored) {
-                }
-            }
-            return null;
-        }
-
-        private X509Certificate parseCertificate(byte[] bytes) throws CertificateException {
-            CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            return (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(bytes));
-        }
-
-        private byte[] concatenate(byte[] a, byte[] b) {
-            byte[] result = new byte[a.length + b.length];
-            System.arraycopy(a, 0, result, 0, a.length);
-            System.arraycopy(b, 0, result, a.length, b.length);
-            return result;
+        private boolean isKeyStoreUnlocked() {
+            return (mKeyStore.test() == KeyStore.NO_ERROR);
         }
 
         @Override public void installCaCertificate(byte[] caCertificate) {
@@ -190,6 +114,12 @@ public class KeyChainService extends Service {
                 throw new IllegalStateException(e);
             }
         }
+
+        private X509Certificate parseCertificate(byte[] bytes) throws CertificateException {
+            CertificateFactory cf = CertificateFactory.getInstance("X.509");
+            return (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(bytes));
+        }
+
         @Override public boolean reset() {
             // only Settings should be able to reset
             final String expectedPackage = "android.uid.system:1000";

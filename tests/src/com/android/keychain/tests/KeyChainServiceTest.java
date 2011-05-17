@@ -191,15 +191,7 @@ public class KeyChainServiceTest extends Service {
             assertNotNull(accountManager);
             for (Account account : accountManager.getAccountsByType(KeyChain.ACCOUNT_TYPE)) {
                 mSupport.revokeAppPermission(account, alias1, getApplicationInfo().uid);
-                mSupport.revokeAppPermission(
-                        account, alias1Intermediate + KeyChain.CA_SUFFIX, getApplicationInfo().uid);
-                mSupport.revokeAppPermission(
-                        account, alias1Root + KeyChain.CA_SUFFIX, getApplicationInfo().uid);
                 mSupport.revokeAppPermission(account, alias2, getApplicationInfo().uid);
-                mSupport.revokeAppPermission(
-                        account, alias2Intermediate + KeyChain.CA_SUFFIX, getApplicationInfo().uid);
-                mSupport.revokeAppPermission(
-                        account, alias2Root + KeyChain.CA_SUFFIX, getApplicationInfo().uid);
             }
 
             Log.d(TAG, "test_KeyChainService bind service");
@@ -244,7 +236,7 @@ public class KeyChainServiceTest extends Service {
             assertNotNull(authToken);
             assertFalse(authToken.isEmpty());
 
-            byte[] privateKey = mService.getPrivate(alias1, authToken);
+            byte[] privateKey = mService.getPrivateKey(alias1, authToken);
             assertNotNull(privateKey);
             assertEquals(Arrays.toString(pke1.getPrivateKey().getEncoded()),
                          Arrays.toString(privateKey));
@@ -253,29 +245,6 @@ public class KeyChainServiceTest extends Service {
             assertNotNull(certificate);
             assertEquals(Arrays.toString(pke1.getCertificate().getEncoded()),
                          Arrays.toString(certificate));
-
-            String aliasI = mService.findIssuer(KeyChain.fromCertificate(pke1.getCertificate()));
-            assertNotNull(aliasI);
-            assertEquals(alias1Intermediate, aliasI);
-
-            String aliasR = mService.findIssuer(KeyChain.fromCertificate(intermediate1));
-            assertNotNull(aliasR);
-            assertEquals(alias1Root, aliasR);
-
-            String aliasRR = mService.findIssuer(KeyChain.fromCertificate(intermediate1));
-            assertNotNull(aliasRR);
-            assertEquals(alias1Root, aliasRR);
-
-            try {
-                mService.findIssuer(new Bundle());
-                fail();
-            } catch (IllegalArgumentException expected) {
-            }
-            try {
-                mService.findIssuer(null);
-                fail();
-            } catch (NullPointerException expected) {
-            }
 
             Log.d(TAG, "test_KeyChainService unbind");
             unbindServices();

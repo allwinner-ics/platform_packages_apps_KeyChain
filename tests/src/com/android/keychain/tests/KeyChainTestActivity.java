@@ -20,7 +20,9 @@ import android.app.Activity;
 import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.RemoteException;
 import android.security.KeyChain;
+import android.security.KeyChainResult;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.widget.TextView;
@@ -89,10 +91,45 @@ public class KeyChainTestActivity extends Activity {
         log("Starting test...");
 
         try {
-            KeyChain.getInstance(this);
+            KeyChain.get(null, null);
             throw new AssertionError();
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            throw new AssertionError(e);
+        } catch (RemoteException e) {
+            throw new AssertionError(e);
+        } catch (NullPointerException expected) {
+            log("KeyChain failed as expected with null argument.");
+        }
+
+        try {
+            KeyChain.get(this, null);
+            throw new AssertionError();
+        } catch (InterruptedException e) {
+            throw new AssertionError(e);
+        } catch (RemoteException e) {
+            throw new AssertionError(e);
+        } catch (NullPointerException expected) {
+            log("KeyChain failed as expected with null argument.");
+        }
+
+        try {
+            KeyChain.get(null, "");
+            throw new AssertionError();
+        } catch (InterruptedException e) {
+            throw new AssertionError(e);
+        } catch (RemoteException e) {
+            throw new AssertionError(e);
+        } catch (NullPointerException expected) {
+            log("KeyChain failed as expected with null argument.");
+        }
+
+        try {
+            KeyChain.get(this, "");
+            throw new AssertionError();
+        } catch (InterruptedException e) {
+            throw new AssertionError(e);
+        } catch (RemoteException e) {
+            throw new AssertionError(e);
         } catch (IllegalStateException expected) {
             log("KeyChain failed as expected on main thread.");
         }
@@ -100,7 +137,6 @@ public class KeyChainTestActivity extends Activity {
         new AsyncTask<Void, Void, Void>() {
             @Override protected Void doInBackground(Void... params) {
                 try {
-                    mKeyChain = KeyChain.getInstance(KeyChainTestActivity.this);
                     log("Starting web server...");
                     URL url = startWebServer();
                     log("Making https request to " + url);
@@ -132,9 +168,7 @@ public class KeyChainTestActivity extends Activity {
             }
             private void makeHttpsRequest(URL url) throws Exception {
                 SSLContext clientContext = SSLContext.getInstance("SSL");
-                clientContext.init(new KeyManager[] { new KeyChainKeyManager() },
-                                   new TrustManager[] { new KeyChainTrustManager() },
-                                   null);
+                clientContext.init(new KeyManager[] { new KeyChainKeyManager() }, null, null);
                 HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
                 connection.setSSLSocketFactory(clientContext.getSocketFactory());
                 if (connection.getResponseCode() != 200) {
@@ -190,16 +224,23 @@ public class KeyChainTestActivity extends Activity {
             throw new UnsupportedOperationException();
         }
         @Override public X509Certificate[] getCertificateChain(String alias) {
-            log("KeyChainKeyManager getCertificateChain...");
-            Bundle cert = mKeyChain.getCertificate(alias);
-            Intent intent = cert.getParcelable(KeyChain.KEY_INTENT);
-            if (intent != null) {
-                waitForGrant(intent);
-                cert = mKeyChain.getCertificate(alias);
+            try {
+                log("KeyChainKeyManager getCertificateChain...");
+                KeyChainResult keyChainResult = KeyChain.get(KeyChainTestActivity.this, alias);
+                Intent intent = keyChainResult.getIntent();
+                if (intent != null) {
+                    waitForGrant(intent);
+                    keyChainResult = KeyChain.get(KeyChainTestActivity.this, alias);
+                }
+                X509Certificate certificate = keyChainResult.getCertificate();
+                log("certificate=" + certificate);
+                return new X509Certificate[] { certificate };
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            } catch (RemoteException e) {
+                throw new RuntimeException(e);
             }
-            X509Certificate certificate = KeyChain.toCertificate(cert);
-            log("certificate=" + certificate);
-            return new X509Certificate[] { certificate };
         }
         @Override public String[] getClientAliases(String keyType, Principal[] issuers) {
             // not a client SSLSocket callback
@@ -210,84 +251,23 @@ public class KeyChainTestActivity extends Activity {
             throw new UnsupportedOperationException();
         }
         @Override public PrivateKey getPrivateKey(String alias) {
-            log("KeyChainKeyManager getPrivateKey...");
-            Bundle pkey = mKeyChain.getPrivate(alias);
-            Intent intent = pkey.getParcelable(KeyChain.KEY_INTENT);
-            if (intent != null) {
-                waitForGrant(intent);
-                pkey = mKeyChain.getPrivate(alias);
-            }
-            PrivateKey privateKey = KeyChain.toPrivateKey(pkey);
-            log("privateKey=" + privateKey);
-            return privateKey;
-        }
-    }
-
-    private class KeyChainTrustManager implements X509TrustManager {
-        private final X509TrustManager trustManager = SSLParametersImpl.getDefaultTrustManager();
-        private final IndexedPKIXParameters index
-                = SSLParametersImpl.getDefaultIndexedPKIXParameters();
-
-        @Override public void checkClientTrusted(X509Certificate[] chain, String authType)
-                throws CertificateException {
-            // not a client SSLSocket callback
-            throw new UnsupportedOperationException();
-        }
-
-        @Override public void checkServerTrusted(X509Certificate[] chain, String authType)
-                throws CertificateException {
-            log("KeyChainTrustManager checkServerTrusted...");
-            // start at the end of the chain and make sure we have a trust anchor.
-            // if not, ask KeyChain for one.
-            X509Certificate end = chain[chain.length-1];
-            if (findTrustAnchor(end)) {
-                trustManager.checkServerTrusted(chain, authType);
-                return;
-            }
-
-            // try to extend the chain
-            List<X509Certificate> list = new ArrayList<X509Certificate>(Arrays.asList(chain));
-            do {
-                Bundle ca = mKeyChain.findIssuer(end);
-                if (ca == null) {
-                    break;
-                }
-                Intent intent = ca.getParcelable(KeyChain.KEY_INTENT);
+            try {
+                log("KeyChainKeyManager getPrivateKey...");
+                KeyChainResult keyChainResult = KeyChain.get(KeyChainTestActivity.this, alias);
+                Intent intent = keyChainResult.getIntent();
                 if (intent != null) {
                     waitForGrant(intent);
-                    ca = mKeyChain.findIssuer(end);
+                    keyChainResult = KeyChain.get(KeyChainTestActivity.this, alias);
                 }
-                end = KeyChain.toCertificate(ca);
-                list.add(end);
-            } while (!findTrustAnchor(end));
-
-            // convert extended chain back to array
-            if (list.size() != chain.length) {
-                chain = list.toArray(new X509Certificate[list.size()]);
+                PrivateKey privateKey = keyChainResult.getPrivateKey();
+                log("privateKey=" + privateKey);
+                return privateKey;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            } catch (RemoteException e) {
+                throw new RuntimeException(e);
             }
-            trustManager.checkServerTrusted(chain, authType);
-        }
-
-        /**
-         * Returns true if we have found a trust anchor, with or
-         * without error, indicating that we should call the
-         * underlying TrustManager to verify the chain in its current
-         * state. Otherwise, returns false to indicate the chain
-         * should be extended.
-         */
-        private boolean findTrustAnchor(X509Certificate cert) {
-            try {
-                if (index.findTrustAnchor(cert) == null) {
-                    return false;
-                }
-            } catch (CertPathValidatorException ignored) {
-            }
-            return true;
-        }
-
-        @Override public X509Certificate[] getAcceptedIssuers() {
-            // not a client SSLSocket callback
-            throw new UnsupportedOperationException();
         }
     }
 
