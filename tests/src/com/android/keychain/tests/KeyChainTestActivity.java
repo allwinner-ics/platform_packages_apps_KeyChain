@@ -21,6 +21,7 @@ import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.RemoteException;
+import android.security.Credentials;
 import android.security.KeyChain;
 import android.security.KeyChainResult;
 import android.text.method.ScrollingMovementMethod;
@@ -31,12 +32,8 @@ import java.net.URL;
 import java.security.KeyStore;
 import java.security.Principal;
 import java.security.PrivateKey;
-import java.security.cert.CertPathValidatorException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
@@ -47,8 +44,6 @@ import javax.net.ssl.X509ExtendedKeyManager;
 import javax.net.ssl.X509TrustManager;
 import libcore.java.security.TestKeyStore;
 import libcore.javax.net.ssl.TestSSLContext;
-import org.apache.harmony.xnet.provider.jsse.IndexedPKIXParameters;
-import org.apache.harmony.xnet.provider.jsse.SSLParametersImpl;
 import tests.http.MockResponse;
 import tests.http.MockWebServer;
 
@@ -59,8 +54,9 @@ public class KeyChainTestActivity extends Activity {
 
     private static final String TAG = "KeyChainTestActivity";
 
-    private static final int REQUEST_ALIAS = 1;
-    private static final int REQUEST_GRANT = 2;
+    private static final int REQUEST_CA_INSTALL = 1;
+    private static final int REQUEST_ALIAS = 2;
+    private static final int REQUEST_GRANT = 3;
 
     private TextView mTextView;
 
@@ -89,7 +85,12 @@ public class KeyChainTestActivity extends Activity {
         setContentView(mTextView);
 
         log("Starting test...");
+        testKeyChainImproperUse();
 
+        testCaInstall();
+    }
+
+    private void testKeyChainImproperUse() {
         try {
             KeyChain.get(null, null);
             throw new AssertionError();
@@ -133,65 +134,61 @@ public class KeyChainTestActivity extends Activity {
         } catch (IllegalStateException expected) {
             log("KeyChain failed as expected on main thread.");
         }
-
-        new AsyncTask<Void, Void, Void>() {
-            @Override protected Void doInBackground(Void... params) {
-                try {
-                    log("Starting web server...");
-                    URL url = startWebServer();
-                    log("Making https request to " + url);
-                    makeHttpsRequest(url);
-                    log("Tests succeeded.");
-
-                    return null;
-                } catch (Exception e) {
-                    throw new AssertionError(e);
-                }
-            }
-            private URL startWebServer() throws Exception {
-                KeyStore serverKeyStore = TestKeyStore.getServer().keyStore;
-                char[] serverKeyStorePassword = TestKeyStore.getServer().storePassword;
-                String kmfAlgoritm = KeyManagerFactory.getDefaultAlgorithm();
-                KeyManagerFactory kmf = KeyManagerFactory.getInstance(kmfAlgoritm);
-                kmf.init(serverKeyStore, serverKeyStorePassword);
-                SSLContext serverContext = SSLContext.getInstance("SSL");
-                serverContext.init(kmf.getKeyManagers(),
-                                   new TrustManager[] { new TrustAllTrustManager() },
-                                   null);
-                SSLSocketFactory sf = serverContext.getSocketFactory();
-                SSLSocketFactory needClientAuth = TestSSLContext.clientAuth(sf, false, true);
-                MockWebServer server = new MockWebServer();
-                server.useHttps(needClientAuth, false);
-                server.enqueue(new MockResponse().setBody("this response comes via HTTPS"));
-                server.play();
-                return server.getUrl("/");
-            }
-            private void makeHttpsRequest(URL url) throws Exception {
-                SSLContext clientContext = SSLContext.getInstance("SSL");
-                clientContext.init(new KeyManager[] { new KeyChainKeyManager() }, null, null);
-                HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-                connection.setSSLSocketFactory(clientContext.getSocketFactory());
-                if (connection.getResponseCode() != 200) {
-                    throw new AssertionError();
-                }
-            }
-        }.execute();
     }
 
-    /**
-     * Called when the user did not have access to requested
-     * alias. Ask the user for permission and wait for a result.
-     */
-    private void waitForGrant(Intent intent) {
-        mGranted = false;
-        log("Grant intent=" + intent);
-        startActivityForResult(intent, REQUEST_GRANT);
-        synchronized (mGrantedLock) {
-            while (!mGranted) {
-                try {
-                    mGrantedLock.wait();
-                } catch (InterruptedException ignored) {
-                }
+    private void testCaInstall() {
+        try {
+            log("Requesting install of server's CA...");
+            X509Certificate ca = TestKeyStore.getServer().getRootCertificate("RSA");
+            Intent intent = new Intent("android.credentials.INSTALL");
+            intent.putExtra("name", TAG); // "name" = CredentialHelper.CERT_NAME_KEY
+            intent.putExtra(Credentials.CERTIFICATE, ca.getEncoded());
+            startActivityForResult(intent, REQUEST_CA_INSTALL);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+
+    }
+
+    private class TestHttpsRequest extends AsyncTask<Void, Void, Void> {
+        @Override protected Void doInBackground(Void... params) {
+            try {
+                log("Starting web server...");
+                URL url = startWebServer();
+                log("Making https request to " + url);
+                makeHttpsRequest(url);
+                log("Tests succeeded.");
+
+                return null;
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        }
+        private URL startWebServer() throws Exception {
+            KeyStore serverKeyStore = TestKeyStore.getServer().keyStore;
+            char[] serverKeyStorePassword = TestKeyStore.getServer().storePassword;
+            String kmfAlgoritm = KeyManagerFactory.getDefaultAlgorithm();
+            KeyManagerFactory kmf = KeyManagerFactory.getInstance(kmfAlgoritm);
+            kmf.init(serverKeyStore, serverKeyStorePassword);
+            SSLContext serverContext = SSLContext.getInstance("SSL");
+            serverContext.init(kmf.getKeyManagers(),
+                               new TrustManager[] { new TrustAllTrustManager() },
+                               null);
+            SSLSocketFactory sf = serverContext.getSocketFactory();
+            SSLSocketFactory needClientAuth = TestSSLContext.clientAuth(sf, false, true);
+            MockWebServer server = new MockWebServer();
+            server.useHttps(needClientAuth, false);
+            server.enqueue(new MockResponse().setBody("this response comes via HTTPS"));
+            server.play();
+            return server.getUrl("/");
+        }
+        private void makeHttpsRequest(URL url) throws Exception {
+            SSLContext clientContext = SSLContext.getInstance("SSL");
+            clientContext.init(new KeyManager[] { new KeyChainKeyManager() }, null, null);
+            HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+            connection.setSSLSocketFactory(clientContext.getSocketFactory());
+            if (connection.getResponseCode() != 200) {
+                throw new AssertionError();
             }
         }
     }
@@ -271,6 +268,24 @@ public class KeyChainTestActivity extends Activity {
         }
     }
 
+    /**
+     * Called when the user did not have access to requested
+     * alias. Ask the user for permission and wait for a result.
+     */
+    private void waitForGrant(Intent intent) {
+        mGranted = false;
+        log("Grant intent=" + intent);
+        startActivityForResult(intent, REQUEST_GRANT);
+        synchronized (mGrantedLock) {
+            while (!mGranted) {
+                try {
+                    mGrantedLock.wait();
+                } catch (InterruptedException ignored) {
+                }
+            }
+        }
+    }
+
     private static class TrustAllTrustManager implements X509TrustManager {
         @Override public void checkClientTrusted(X509Certificate[] chain, String authType)
                 throws CertificateException {
@@ -285,6 +300,15 @@ public class KeyChainTestActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         switch (requestCode) {
+            case REQUEST_CA_INSTALL: {
+                log("onActivityResult REQUEST_CA_INSTALL...");
+                if (resultCode != RESULT_OK) {
+                    log("REQUEST_CA_INSTALL failed!");
+                    return;
+                }
+                new TestHttpsRequest().execute();
+                break;
+            }
             case REQUEST_ALIAS: {
                 log("onActivityResult REQUEST_ALIAS...");
                 if (resultCode != RESULT_OK) {
