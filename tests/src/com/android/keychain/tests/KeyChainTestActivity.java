@@ -201,7 +201,6 @@ public class KeyChainTestActivity extends Activity {
 
             Intent intent = KeyChain.chooseAlias();
             startActivityForResult(intent, REQUEST_ALIAS);
-            log("Starting chooser...");
             String alias;
             synchronized (mAliasLock) {
                 while (mAlias == null) {
@@ -313,6 +312,9 @@ public class KeyChainTestActivity extends Activity {
                 log("onActivityResult REQUEST_ALIAS...");
                 if (resultCode != RESULT_OK) {
                     log("REQUEST_ALIAS failed!");
+                    log("Install some client certs with:");
+                    log("    adb shell am startservice -n "
+                        + "com.android.keychain.tests/.KeyChainServiceTest");
                     return;
                 }
                 String alias = data.getExtras().getString(Intent.EXTRA_TEXT);

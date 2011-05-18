@@ -89,7 +89,7 @@ public class KeyChainActivity extends ListActivity {
     private void showAliasList() {
 
         String[] aliases = mKeyStore.saw(Credentials.USER_PRIVATE_KEY);
-        if (aliases == null) {
+        if (aliases == null || aliases.length == 0) {
             setResult(RESULT_CANCELED);
             finish();
             return;
