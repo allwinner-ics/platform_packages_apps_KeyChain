@@ -19,15 +19,16 @@ package com.android.keychain;
 import android.app.ListActivity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.RemoteException;
 import android.security.Credentials;
+import android.security.IKeyChainAliasResponse;
+import android.security.KeyChain;
 import android.security.KeyStore;
 import android.view.View;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
-import android.widget.TextView;
-import android.widget.Toast;
 
 public class KeyChainActivity extends ListActivity {
 
@@ -90,8 +91,7 @@ public class KeyChainActivity extends ListActivity {
 
         String[] aliases = mKeyStore.saw(Credentials.USER_PRIVATE_KEY);
         if (aliases == null || aliases.length == 0) {
-            setResult(RESULT_CANCELED);
-            finish();
+            finish(null);
             return;
         }
 
@@ -109,10 +109,7 @@ public class KeyChainActivity extends ListActivity {
                                               int position,
                                               long id) {
                 String alias = adapter.getItem(position);
-                Intent result = new Intent();
-                result.putExtra(Intent.EXTRA_TEXT, alias);
-                setResult(RESULT_OK, result);
-                finish();
+                finish(alias);
             }
         });
     }
@@ -124,12 +121,32 @@ public class KeyChainActivity extends ListActivity {
                     showAliasList();
                 } else {
                     // user must have canceled unlock, give up
-                    finish();
+                    finish(null);
                 }
                 return;
             default:
                 throw new AssertionError();
         }
+    }
+
+    private void finish(String alias) {
+        if (alias == null) {
+            setResult(RESULT_CANCELED);
+        } else {
+            Intent result = new Intent();
+            result.putExtra(Intent.EXTRA_TEXT, alias);
+            setResult(RESULT_OK, result);
+        }
+        IKeyChainAliasResponse keyChainAliasResponse
+                = IKeyChainAliasResponse.Stub.asInterface(
+                        getIntent().getIBinderExtra(KeyChain.EXTRA_RESPONSE));
+        if (keyChainAliasResponse != null) {
+            try {
+                keyChainAliasResponse.alias(alias);
+            } catch (RemoteException ignored) {
+            }
+        }
+        finish();
     }
 
     @Override protected void onSaveInstanceState(Bundle savedState) {

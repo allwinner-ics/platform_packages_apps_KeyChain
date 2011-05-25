@@ -23,7 +23,7 @@ import android.os.Bundle;
 import android.os.RemoteException;
 import android.security.Credentials;
 import android.security.KeyChain;
-import android.security.KeyChainResult;
+import android.security.KeyChainAliasResponse;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.widget.TextView;
@@ -55,8 +55,6 @@ public class KeyChainTestActivity extends Activity {
     private static final String TAG = "KeyChainTestActivity";
 
     private static final int REQUEST_CA_INSTALL = 1;
-    private static final int REQUEST_ALIAS = 2;
-    private static final int REQUEST_GRANT = 3;
 
     private TextView mTextView;
 
@@ -92,7 +90,7 @@ public class KeyChainTestActivity extends Activity {
 
     private void testKeyChainImproperUse() {
         try {
-            KeyChain.get(null, null);
+            KeyChain.getPrivateKey(null, null);
             throw new AssertionError();
         } catch (InterruptedException e) {
             throw new AssertionError(e);
@@ -103,7 +101,7 @@ public class KeyChainTestActivity extends Activity {
         }
 
         try {
-            KeyChain.get(this, null);
+            KeyChain.getPrivateKey(this, null);
             throw new AssertionError();
         } catch (InterruptedException e) {
             throw new AssertionError(e);
@@ -114,7 +112,7 @@ public class KeyChainTestActivity extends Activity {
         }
 
         try {
-            KeyChain.get(null, "");
+            KeyChain.getPrivateKey(null, "");
             throw new AssertionError();
         } catch (InterruptedException e) {
             throw new AssertionError(e);
@@ -125,7 +123,7 @@ public class KeyChainTestActivity extends Activity {
         }
 
         try {
-            KeyChain.get(this, "");
+            KeyChain.getPrivateKey(this, "");
             throw new AssertionError();
         } catch (InterruptedException e) {
             throw new AssertionError(e);
@@ -199,8 +197,7 @@ public class KeyChainTestActivity extends Activity {
                                                   Socket socket) {
             log("KeyChainKeyManager chooseClientAlias...");
 
-            Intent intent = KeyChain.chooseAlias();
-            startActivityForResult(intent, REQUEST_ALIAS);
+            KeyChain.choosePrivateKeyAlias(KeyChainTestActivity.this, new AliasResponse());
             String alias;
             synchronized (mAliasLock) {
                 while (mAlias == null) {
@@ -222,15 +219,14 @@ public class KeyChainTestActivity extends Activity {
         @Override public X509Certificate[] getCertificateChain(String alias) {
             try {
                 log("KeyChainKeyManager getCertificateChain...");
-                KeyChainResult keyChainResult = KeyChain.get(KeyChainTestActivity.this, alias);
-                Intent intent = keyChainResult.getIntent();
-                if (intent != null) {
-                    waitForGrant(intent);
-                    keyChainResult = KeyChain.get(KeyChainTestActivity.this, alias);
+                X509Certificate[] certificateChain
+                        = KeyChain.getCertificateChain(KeyChainTestActivity.this, alias);
+                if (certificateChain == null) {
+                    log("Null certificate chain!");
+                    return null;
                 }
-                X509Certificate certificate = keyChainResult.getCertificate();
-                log("certificate=" + certificate);
-                return new X509Certificate[] { certificate };
+                log("certificate=" + certificateChain[0]);
+                return certificateChain;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return null;
@@ -249,13 +245,8 @@ public class KeyChainTestActivity extends Activity {
         @Override public PrivateKey getPrivateKey(String alias) {
             try {
                 log("KeyChainKeyManager getPrivateKey...");
-                KeyChainResult keyChainResult = KeyChain.get(KeyChainTestActivity.this, alias);
-                Intent intent = keyChainResult.getIntent();
-                if (intent != null) {
-                    waitForGrant(intent);
-                    keyChainResult = KeyChain.get(KeyChainTestActivity.this, alias);
-                }
-                PrivateKey privateKey = keyChainResult.getPrivateKey();
+                PrivateKey privateKey = KeyChain.getPrivateKey(KeyChainTestActivity.this,
+                                                                         alias);
                 log("privateKey=" + privateKey);
                 return privateKey;
             } catch (InterruptedException e) {
@@ -267,20 +258,19 @@ public class KeyChainTestActivity extends Activity {
         }
     }
 
-    /**
-     * Called when the user did not have access to requested
-     * alias. Ask the user for permission and wait for a result.
-     */
-    private void waitForGrant(Intent intent) {
-        mGranted = false;
-        log("Grant intent=" + intent);
-        startActivityForResult(intent, REQUEST_GRANT);
-        synchronized (mGrantedLock) {
-            while (!mGranted) {
-                try {
-                    mGrantedLock.wait();
-                } catch (InterruptedException ignored) {
-                }
+    private class AliasResponse implements KeyChainAliasResponse {
+        @Override public void alias(String alias) {
+            if (alias == null) {
+                log("AliasResponse empty!");
+                log("Do you need to install some client certs with:");
+                log("    adb shell am startservice -n "
+                    + "com.android.keychain.tests/.KeyChainServiceTest");
+                return;
+            }
+            log("Alias choosen '" + alias + "'");
+            synchronized (mAliasLock) {
+                mAlias = alias;
+                mAliasLock.notifyAll();
             }
         }
     }
@@ -306,35 +296,6 @@ public class KeyChainTestActivity extends Activity {
                     return;
                 }
                 new TestHttpsRequest().execute();
-                break;
-            }
-            case REQUEST_ALIAS: {
-                log("onActivityResult REQUEST_ALIAS...");
-                if (resultCode != RESULT_OK) {
-                    log("REQUEST_ALIAS failed!");
-                    log("Install some client certs with:");
-                    log("    adb shell am startservice -n "
-                        + "com.android.keychain.tests/.KeyChainServiceTest");
-                    return;
-                }
-                String alias = data.getExtras().getString(Intent.EXTRA_TEXT);
-                log("Alias choosen '" + alias + "'");
-                synchronized (mAliasLock) {
-                    mAlias = alias;
-                    mAliasLock.notifyAll();
-                }
-                break;
-            }
-            case REQUEST_GRANT: {
-                log("onActivityResult REQUEST_GRANT...");
-                if (resultCode != RESULT_OK) {
-                    log("REQUEST_GRANT failed!");
-                    return;
-                }
-                synchronized (mGrantedLock) {
-                    mGranted = true;
-                    mGrantedLock.notifyAll();
-                }
                 break;
             }
             default:
