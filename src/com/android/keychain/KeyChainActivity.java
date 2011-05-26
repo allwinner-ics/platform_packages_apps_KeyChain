@@ -143,7 +143,10 @@ public class KeyChainActivity extends ListActivity {
         if (keyChainAliasResponse != null) {
             try {
                 keyChainAliasResponse.alias(alias);
-            } catch (RemoteException ignored) {
+            } catch (Exception ignored) {
+                // don't just catch RemoteException, caller could
+                // throw back a RuntimeException across processes
+                // which we should protect against.
             }
         }
         finish();

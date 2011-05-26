@@ -191,13 +191,13 @@ public class KeyChainService extends Service {
                                            String accountType,
                                            String authTokenType,
                                            String[] requiredFeatures,
-                                           Bundle options) throws NetworkErrorException {
+                                           Bundle options) {
             return null;
         }
 
         @Override public Bundle confirmCredentials(AccountAuthenticatorResponse response,
                                                    Account account,
-                                                   Bundle options) throws NetworkErrorException {
+                                                   Bundle options) {
             return null;
         }
 
@@ -207,7 +207,7 @@ public class KeyChainService extends Service {
         @Override public Bundle getAuthToken(AccountAuthenticatorResponse response,
                                              Account account,
                                              String authTokenType,
-                                             Bundle options) throws NetworkErrorException {
+                                             Bundle options) {
             byte[] bytes = new byte[AUTHTOKEN_LENGTH];
             mSecureRandom.nextBytes(bytes);
             String authToken = Base64.encode(bytes, Charsets.US_ASCII);
@@ -227,13 +227,13 @@ public class KeyChainService extends Service {
         @Override public Bundle updateCredentials(AccountAuthenticatorResponse response,
                                                   Account account,
                                                   String authTokenType,
-                                                  Bundle options) throws NetworkErrorException {
+                                                  Bundle options) {
             return null;
         }
 
         @Override public Bundle hasFeatures(AccountAuthenticatorResponse response,
                                             Account account,
-                                            String[] features) throws NetworkErrorException {
+                                            String[] features) {
             return null;
         }
     };
