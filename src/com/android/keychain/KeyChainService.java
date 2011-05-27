@@ -41,7 +41,7 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Collections;
 import javax.security.auth.x500.X500Principal;
-import org.apache.harmony.luni.util.Base64;
+import libcore.io.Base64;
 import org.apache.harmony.xnet.provider.jsse.TrustedCertificateStore;
 
 public class KeyChainService extends Service {
@@ -210,7 +210,7 @@ public class KeyChainService extends Service {
                                              Bundle options) {
             byte[] bytes = new byte[AUTHTOKEN_LENGTH];
             mSecureRandom.nextBytes(bytes);
-            String authToken = Base64.encode(bytes, Charsets.US_ASCII);
+            String authToken = Base64.encode(bytes);
             Bundle bundle = new Bundle();
             bundle.putString(AccountManager.KEY_ACCOUNT_NAME, account.name);
             bundle.putString(AccountManager.KEY_ACCOUNT_TYPE, KeyChain.ACCOUNT_TYPE);
