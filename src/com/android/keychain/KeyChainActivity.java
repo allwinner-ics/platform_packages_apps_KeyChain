@@ -45,7 +45,7 @@ public class KeyChainActivity extends ListActivity {
     private KeyStore mKeyStore = KeyStore.getInstance();
 
     private boolean isKeyStoreUnlocked() {
-        return mKeyStore.test() == KeyStore.NO_ERROR;
+        return mKeyStore.state() == KeyStore.State.UNLOCKED;
     }
 
     @Override public void onCreate(Bundle savedState) {

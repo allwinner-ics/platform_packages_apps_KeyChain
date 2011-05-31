@@ -150,7 +150,7 @@ public class KeyChainServiceTest extends Service {
             Log.d(TAG, "test_KeyChainService setup keystore and AccountManager");
             KeyStore keyStore = KeyStore.getInstance();
             assertTrue(mSupport.keystoreReset());
-            assertTrue(mSupport.keystorePassword("ignored", "newpasswd"));
+            assertTrue(mSupport.keystorePassword("newpasswd"));
 
             String intermediate = "-intermediate";
             String root = "-root";
@@ -158,10 +158,10 @@ public class KeyChainServiceTest extends Service {
             String alias1 = "client";
             String alias1Intermediate = alias1 + intermediate;
             String alias1Root = alias1 + root;
-            byte[] alias1Pkey = (Credentials.USER_PRIVATE_KEY + alias1).getBytes();
-            byte[] alias1Cert = (Credentials.USER_CERTIFICATE + alias1).getBytes();
-            byte[] alias1ICert = (Credentials.CA_CERTIFICATE + alias1Intermediate).getBytes();
-            byte[] alias1RCert = (Credentials.CA_CERTIFICATE + alias1Root).getBytes();
+            String alias1Pkey = (Credentials.USER_PRIVATE_KEY + alias1);
+            String alias1Cert = (Credentials.USER_CERTIFICATE + alias1);
+            String alias1ICert = (Credentials.CA_CERTIFICATE + alias1Intermediate);
+            String alias1RCert = (Credentials.CA_CERTIFICATE + alias1Root);
             PrivateKeyEntry pke1 = TestKeyStore.getClientCertificate().getPrivateKey("RSA", "RSA");
             Certificate intermediate1 = pke1.getCertificateChain()[1];
             Certificate root1 = TestKeyStore.getClientCertificate().getRootCertificate("RSA");
@@ -169,10 +169,10 @@ public class KeyChainServiceTest extends Service {
             final String alias2 = "server";
             String alias2Intermediate = alias2 + intermediate;
             String alias2Root = alias2 + root;
-            byte[] alias2Pkey = (Credentials.USER_PRIVATE_KEY + alias2).getBytes();
-            byte[] alias2Cert = (Credentials.USER_CERTIFICATE + alias2).getBytes();
-            byte[] alias2ICert = (Credentials.CA_CERTIFICATE + alias2Intermediate).getBytes();
-            byte[] alias2RCert = (Credentials.CA_CERTIFICATE + alias2Root).getBytes();
+            String alias2Pkey = (Credentials.USER_PRIVATE_KEY + alias2);
+            String alias2Cert = (Credentials.USER_CERTIFICATE + alias2);
+            String alias2ICert = (Credentials.CA_CERTIFICATE + alias2Intermediate);
+            String alias2RCert = (Credentials.CA_CERTIFICATE + alias2Root);
             PrivateKeyEntry pke2 = TestKeyStore.getServer().getPrivateKey("RSA", "RSA");
             Certificate intermediate2 = pke2.getCertificateChain()[1];
             Certificate root2 = TestKeyStore.getServer().getRootCertificate("RSA");
@@ -186,7 +186,7 @@ public class KeyChainServiceTest extends Service {
             assertTrue(mSupport.keystorePut(alias2ICert, intermediate2.getEncoded()));
             assertTrue(mSupport.keystorePut(alias2RCert, root2.getEncoded()));
 
-            assertEquals(KeyStore.NO_ERROR, keyStore.test());
+            assertEquals(KeyStore.State.UNLOCKED, keyStore.state());
             AccountManager accountManager = AccountManager.get(KeyChainServiceTest.this);
             assertNotNull(accountManager);
             for (Account account : accountManager.getAccountsByType(KeyChain.ACCOUNT_TYPE)) {

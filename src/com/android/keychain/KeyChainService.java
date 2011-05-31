@@ -86,7 +86,7 @@ public class KeyChainService extends Service {
                 throw new IllegalStateException("authtoken mismatch");
             }
             String key = type + alias;
-            byte[] bytes =  mKeyStore.get(key.getBytes(Charsets.UTF_8));
+            byte[] bytes =  mKeyStore.get(key);
             if (bytes == null) {
                 throw new IllegalStateException("keystore value missing");
             }
@@ -94,7 +94,7 @@ public class KeyChainService extends Service {
         }
 
         private boolean isKeyStoreUnlocked() {
-            return (mKeyStore.test() == KeyStore.NO_ERROR);
+            return (mKeyStore.state() == KeyStore.State.UNLOCKED);
         }
 
         @Override public void installCaCertificate(byte[] caCertificate) {
