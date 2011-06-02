@@ -48,6 +48,11 @@ public class KeyChainActivity extends ListActivity {
         return mKeyStore.state() == KeyStore.State.UNLOCKED;
     }
 
+    private boolean isKeyStoreEmpty() {
+        String[] aliases = mKeyStore.saw(Credentials.USER_PRIVATE_KEY);
+        return (aliases == null || aliases.length == 0);
+    }
+
     @Override public void onCreate(Bundle savedState) {
         super.onCreate(savedState);
         if (savedState == null) {
@@ -66,6 +71,11 @@ public class KeyChainActivity extends ListActivity {
         // see if KeyStore has been unlocked, if not start activity to do so
         switch (mState) {
             case INITIAL:
+                if (isKeyStoreEmpty()) {
+                    finish(null);
+                    return;
+                }
+
                 if (!isKeyStoreUnlocked()) {
                     mState = State.UNLOCK_REQUESTED;
                     this.startActivityForResult(new Intent(Credentials.UNLOCK_ACTION),
