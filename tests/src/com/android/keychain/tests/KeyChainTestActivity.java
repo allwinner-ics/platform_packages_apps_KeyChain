@@ -44,8 +44,8 @@ import javax.net.ssl.X509ExtendedKeyManager;
 import javax.net.ssl.X509TrustManager;
 import libcore.java.security.TestKeyStore;
 import libcore.javax.net.ssl.TestSSLContext;
-import tests.http.MockResponse;
-import tests.http.MockWebServer;
+import com.google.mockwebserver.MockResponse;
+import com.google.mockwebserver.MockWebServer;
 
 /**
  * Simple activity based test that exercises the KeyChain API
