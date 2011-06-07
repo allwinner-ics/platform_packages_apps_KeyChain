@@ -236,6 +236,7 @@ public class KeyChainServiceTest extends Service {
             assertNotNull(authToken);
             assertFalse(authToken.isEmpty());
 
+            Log.d(TAG, "test_KeyChainService positive testing");
             byte[] privateKey = mService.getPrivateKey(alias1, authToken);
             assertNotNull(privateKey);
             assertEquals(Arrays.toString(pke1.getPrivateKey().getEncoded()),
@@ -245,6 +246,19 @@ public class KeyChainServiceTest extends Service {
             assertNotNull(certificate);
             assertEquals(Arrays.toString(pke1.getCertificate().getEncoded()),
                          Arrays.toString(certificate));
+
+            Log.d(TAG, "test_KeyChainService negative testing");
+            try {
+                mService.getPrivateKey(alias2, authToken);
+                fail();
+            } catch (IllegalStateException expected) {
+            }
+
+            try {
+                mService.getCertificate(alias2, authToken);
+                fail();
+            } catch (IllegalStateException expected) {
+            }
 
             Log.d(TAG, "test_KeyChainService unbind");
             unbindServices();

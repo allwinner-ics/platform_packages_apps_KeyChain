@@ -162,6 +162,10 @@ public class KeyChainActivity extends ListActivity {
         finish();
     }
 
+    @Override public void onBackPressed() {
+        finish(null);
+    }
+
     @Override protected void onSaveInstanceState(Bundle savedState) {
         super.onSaveInstanceState(savedState);
         if (mState != State.INITIAL) {
