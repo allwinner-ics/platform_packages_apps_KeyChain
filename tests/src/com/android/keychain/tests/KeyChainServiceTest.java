@@ -177,14 +177,22 @@ public class KeyChainServiceTest extends Service {
             Certificate intermediate2 = pke2.getCertificateChain()[1];
             Certificate root2 = TestKeyStore.getServer().getRootCertificate("RSA");
 
-            assertTrue(mSupport.keystorePut(alias1Pkey, pke1.getPrivateKey().getEncoded()));
-            assertTrue(mSupport.keystorePut(alias1Cert, pke1.getCertificate().getEncoded()));
-            assertTrue(mSupport.keystorePut(alias1ICert, intermediate1.getEncoded()));
-            assertTrue(mSupport.keystorePut(alias1RCert, root1.getEncoded()));
-            assertTrue(mSupport.keystorePut(alias2Pkey, pke2.getPrivateKey().getEncoded()));
-            assertTrue(mSupport.keystorePut(alias2Cert, pke2.getCertificate().getEncoded()));
-            assertTrue(mSupport.keystorePut(alias2ICert, intermediate2.getEncoded()));
-            assertTrue(mSupport.keystorePut(alias2RCert, root2.getEncoded()));
+            assertTrue(mSupport.keystorePut(alias1Pkey,
+                                            Credentials.convertToPem(pke1.getPrivateKey())));
+            assertTrue(mSupport.keystorePut(alias1Cert,
+                                            Credentials.convertToPem(pke1.getCertificate())));
+            assertTrue(mSupport.keystorePut(alias1ICert,
+                                            Credentials.convertToPem(intermediate1)));
+            assertTrue(mSupport.keystorePut(alias1RCert,
+                                            Credentials.convertToPem(root1)));
+            assertTrue(mSupport.keystorePut(alias2Pkey,
+                                            Credentials.convertToPem(pke2.getPrivateKey())));
+            assertTrue(mSupport.keystorePut(alias2Cert,
+                                            Credentials.convertToPem(pke2.getCertificate())));
+            assertTrue(mSupport.keystorePut(alias2ICert,
+                                            Credentials.convertToPem(intermediate2)));
+            assertTrue(mSupport.keystorePut(alias2RCert,
+                                            Credentials.convertToPem(root2)));
 
             assertEquals(KeyStore.State.UNLOCKED, keyStore.state());
             AccountManager accountManager = AccountManager.get(KeyChainServiceTest.this);
@@ -239,12 +247,12 @@ public class KeyChainServiceTest extends Service {
             Log.d(TAG, "test_KeyChainService positive testing");
             byte[] privateKey = mService.getPrivateKey(alias1, authToken);
             assertNotNull(privateKey);
-            assertEquals(Arrays.toString(pke1.getPrivateKey().getEncoded()),
+            assertEquals(Arrays.toString(Credentials.convertToPem(pke1.getPrivateKey())),
                          Arrays.toString(privateKey));
 
             byte[] certificate = mService.getCertificate(alias1, authToken);
             assertNotNull(certificate);
-            assertEquals(Arrays.toString(pke1.getCertificate().getEncoded()),
+            assertEquals(Arrays.toString(Credentials.convertToPem(pke1.getCertificate())),
                          Arrays.toString(certificate));
 
             Log.d(TAG, "test_KeyChainService negative testing");

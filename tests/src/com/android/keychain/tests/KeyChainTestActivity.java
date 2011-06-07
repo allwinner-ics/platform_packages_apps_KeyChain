@@ -140,7 +140,7 @@ public class KeyChainTestActivity extends Activity {
             X509Certificate ca = TestKeyStore.getServer().getRootCertificate("RSA");
             Intent intent = new Intent("android.credentials.INSTALL");
             intent.putExtra("name", TAG); // "name" = CredentialHelper.CERT_NAME_KEY
-            intent.putExtra(Credentials.CERTIFICATE, ca.getEncoded());
+            intent.putExtra(Credentials.CERTIFICATE, Credentials.convertToPem(ca));
             startActivityForResult(intent, REQUEST_CA_INSTALL);
         } catch (Exception e) {
             throw new AssertionError(e);
