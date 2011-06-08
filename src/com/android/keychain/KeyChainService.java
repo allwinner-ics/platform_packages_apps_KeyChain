@@ -82,7 +82,11 @@ public class KeyChainService extends Service {
             if (!isKeyStoreUnlocked()) {
                 throw new IllegalStateException("keystore locked");
             }
-            if (!mAccountManager.peekAuthToken(mAccount, alias).equals(authToken)) {
+            String peekedAuthToken = mAccountManager.peekAuthToken(mAccount, alias);
+            if (peekedAuthToken == null) {
+                throw new IllegalStateException("peekedAuthToken == null");
+            }
+            if (!peekedAuthToken.equals(authToken)) {
                 throw new IllegalStateException("authtoken mismatch");
             }
             String key = type + alias;
