@@ -23,7 +23,8 @@ import android.os.Bundle;
 import android.os.RemoteException;
 import android.security.Credentials;
 import android.security.KeyChain;
-import android.security.KeyChainAliasResponse;
+import android.security.KeyChainAliasCallback;
+import android.security.KeyChainException;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.widget.TextView;
@@ -94,7 +95,7 @@ public class KeyChainTestActivity extends Activity {
             throw new AssertionError();
         } catch (InterruptedException e) {
             throw new AssertionError(e);
-        } catch (RemoteException e) {
+        } catch (KeyChainException e) {
             throw new AssertionError(e);
         } catch (NullPointerException expected) {
             log("KeyChain failed as expected with null argument.");
@@ -105,7 +106,7 @@ public class KeyChainTestActivity extends Activity {
             throw new AssertionError();
         } catch (InterruptedException e) {
             throw new AssertionError(e);
-        } catch (RemoteException e) {
+        } catch (KeyChainException e) {
             throw new AssertionError(e);
         } catch (NullPointerException expected) {
             log("KeyChain failed as expected with null argument.");
@@ -116,7 +117,7 @@ public class KeyChainTestActivity extends Activity {
             throw new AssertionError();
         } catch (InterruptedException e) {
             throw new AssertionError(e);
-        } catch (RemoteException e) {
+        } catch (KeyChainException e) {
             throw new AssertionError(e);
         } catch (NullPointerException expected) {
             log("KeyChain failed as expected with null argument.");
@@ -127,7 +128,7 @@ public class KeyChainTestActivity extends Activity {
             throw new AssertionError();
         } catch (InterruptedException e) {
             throw new AssertionError(e);
-        } catch (RemoteException e) {
+        } catch (KeyChainException e) {
             throw new AssertionError(e);
         } catch (IllegalStateException expected) {
             log("KeyChain failed as expected on main thread.");
@@ -197,7 +198,8 @@ public class KeyChainTestActivity extends Activity {
                                                   Socket socket) {
             log("KeyChainKeyManager chooseClientAlias...");
 
-            KeyChain.choosePrivateKeyAlias(KeyChainTestActivity.this, new AliasResponse());
+            KeyChain.choosePrivateKeyAlias(KeyChainTestActivity.this, new AliasResponse(),
+                                           null, null, null, -1);
             String alias;
             synchronized (mAliasLock) {
                 while (mAlias == null) {
@@ -230,7 +232,7 @@ public class KeyChainTestActivity extends Activity {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return null;
-            } catch (RemoteException e) {
+            } catch (KeyChainException e) {
                 throw new RuntimeException(e);
             }
         }
@@ -252,13 +254,13 @@ public class KeyChainTestActivity extends Activity {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return null;
-            } catch (RemoteException e) {
+            } catch (KeyChainException e) {
                 throw new RuntimeException(e);
             }
         }
     }
 
-    private class AliasResponse implements KeyChainAliasResponse {
+    private class AliasResponse implements KeyChainAliasCallback {
         @Override public void alias(String alias) {
             if (alias == null) {
                 log("AliasResponse empty!");

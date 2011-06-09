@@ -21,7 +21,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.RemoteException;
 import android.security.Credentials;
-import android.security.IKeyChainAliasResponse;
+import android.security.IKeyChainAliasCallback;
 import android.security.KeyChain;
 import android.security.KeyStore;
 import android.view.View;
@@ -147,8 +147,8 @@ public class KeyChainActivity extends ListActivity {
             result.putExtra(Intent.EXTRA_TEXT, alias);
             setResult(RESULT_OK, result);
         }
-        IKeyChainAliasResponse keyChainAliasResponse
-                = IKeyChainAliasResponse.Stub.asInterface(
+        IKeyChainAliasCallback keyChainAliasResponse
+                = IKeyChainAliasCallback.Stub.asInterface(
                         getIntent().getIBinderExtra(KeyChain.EXTRA_RESPONSE));
         if (keyChainAliasResponse != null) {
             try {

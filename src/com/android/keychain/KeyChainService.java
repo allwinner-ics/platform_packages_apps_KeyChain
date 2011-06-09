@@ -92,7 +92,7 @@ public class KeyChainService extends Service {
             String key = type + alias;
             byte[] bytes =  mKeyStore.get(key);
             if (bytes == null) {
-                throw new IllegalStateException("keystore value missing");
+                return null;
             }
             return bytes;
         }
