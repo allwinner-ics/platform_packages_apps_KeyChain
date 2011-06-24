@@ -21,6 +21,7 @@ import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.RemoteException;
+import android.os.StrictMode;
 import android.security.Credentials;
 import android.security.KeyChain;
 import android.security.KeyChainAliasCallback;
@@ -59,7 +60,7 @@ public class KeyChainTestActivity extends Activity {
 
     private TextView mTextView;
 
-    private KeyChain mKeyChain;
+    private TestKeyStore mTestKeyStore;
 
     private final Object mAliasLock = new Object();
     private String mAlias;
@@ -79,6 +80,20 @@ public class KeyChainTestActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        StrictMode.setThreadPolicy(new StrictMode.ThreadPolicy.Builder()
+                                   .detectDiskReads()
+                                   .detectDiskWrites()
+                                   .detectAll()
+                                   .penaltyLog()
+                                   .penaltyDeath()
+                                   .build());
+        StrictMode.setVmPolicy(new StrictMode.VmPolicy.Builder()
+                               .detectLeakedSqlLiteObjects()
+                               .detectLeakedClosableObjects()
+                               .penaltyLog()
+                               .penaltyDeath()
+                               .build());
+
         mTextView = new TextView(this);
         mTextView.setMovementMethod(new ScrollingMovementMethod());
         setContentView(mTextView);
@@ -86,7 +101,7 @@ public class KeyChainTestActivity extends Activity {
         log("Starting test...");
         testKeyChainImproperUse();
 
-        testCaInstall();
+        new SetupTestKeyStore().execute();
     }
 
     private void testKeyChainImproperUse() {
@@ -135,10 +150,20 @@ public class KeyChainTestActivity extends Activity {
         }
     }
 
+    private class SetupTestKeyStore extends AsyncTask<Void, Void, Void> {
+        @Override protected Void doInBackground(Void... params) {
+            mTestKeyStore = TestKeyStore.getServer();
+            return null;
+        }
+        @Override protected void onPostExecute(Void result) {
+            testCaInstall();
+        }
+    }
+
     private void testCaInstall() {
         try {
             log("Requesting install of server's CA...");
-            X509Certificate ca = TestKeyStore.getServer().getRootCertificate("RSA");
+            X509Certificate ca = mTestKeyStore.getRootCertificate("RSA");
             Intent intent = new Intent("android.credentials.INSTALL");
             intent.putExtra("name", TAG); // "name" = CredentialHelper.CERT_NAME_KEY
             intent.putExtra(Credentials.CERTIFICATE, Credentials.convertToPem(ca));
@@ -164,8 +189,8 @@ public class KeyChainTestActivity extends Activity {
             }
         }
         private URL startWebServer() throws Exception {
-            KeyStore serverKeyStore = TestKeyStore.getServer().keyStore;
-            char[] serverKeyStorePassword = TestKeyStore.getServer().storePassword;
+            KeyStore serverKeyStore = mTestKeyStore.keyStore;
+            char[] serverKeyStorePassword = mTestKeyStore.storePassword;
             String kmfAlgoritm = KeyManagerFactory.getDefaultAlgorithm();
             KeyManagerFactory kmf = KeyManagerFactory.getInstance(kmfAlgoritm);
             kmf.init(serverKeyStore, serverKeyStorePassword);
@@ -199,7 +224,9 @@ public class KeyChainTestActivity extends Activity {
             log("KeyChainKeyManager chooseClientAlias...");
 
             KeyChain.choosePrivateKeyAlias(KeyChainTestActivity.this, new AliasResponse(),
-                                           null, null, null, -1);
+                                           keyTypes, issuers,
+                                           socket.getInetAddress().getHostName(), socket.getPort(),
+                                           "My Test Certificate");
             String alias;
             synchronized (mAliasLock) {
                 while (mAlias == null) {

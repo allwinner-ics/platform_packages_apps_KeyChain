@@ -17,6 +17,7 @@
                        android:resource="@xml/authenticator"/>
         </service>
         <activity android:name="com.android.keychain.KeyChainActivity"
+                  android:theme="@style/Transparent"
 		  android:excludeFromRecents="true">
 	    <intent-filter>
 	        <action android:name="com.android.keychain.CHOOSER"/>

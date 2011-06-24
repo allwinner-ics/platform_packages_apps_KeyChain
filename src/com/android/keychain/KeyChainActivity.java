@@ -16,21 +16,42 @@
 
 package com.android.keychain;
 
-import android.app.ListActivity;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.Dialog;
+import android.app.PendingIntent;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.res.Resources;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.RemoteException;
 import android.security.Credentials;
 import android.security.IKeyChainAliasCallback;
 import android.security.KeyChain;
 import android.security.KeyStore;
+import android.view.LayoutInflater;
 import android.view.View;
-import android.widget.AdapterView.OnItemClickListener;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
+import android.view.ViewGroup;
+import android.widget.BaseAdapter;
+import android.widget.Button;
 import android.widget.ListView;
+import android.widget.RadioButton;
+import android.widget.TextView;
+import com.android.org.bouncycastle.asn1.x509.X509Name;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import javax.security.auth.x500.X500Principal;
 
-public class KeyChainActivity extends ListActivity {
+public class KeyChainActivity extends Activity {
 
     private static final String TAG = "KeyChainActivity";
 
@@ -38,19 +59,24 @@ public class KeyChainActivity extends ListActivity {
 
     private static final int REQUEST_UNLOCK = 1;
 
+    private static final int DIALOG_CERT_CHOOSER = 0;
+
     private static enum State { INITIAL, UNLOCK_REQUESTED };
 
     private State mState;
 
+    // beware that some of these KeyStore operations such as saw and
+    // get do file I/O in the remote keystore process and while they
+    // do not cause StrictMode violations, they logically should not
+    // be done on the UI thread.
     private KeyStore mKeyStore = KeyStore.getInstance();
 
+    private CertificateAdapter mCertificateAdapter;
+
+    // the KeyStore.state operation is safe to do on the UI thread, it
+    // does not do a file operation.
     private boolean isKeyStoreUnlocked() {
         return mKeyStore.state() == KeyStore.State.UNLOCKED;
-    }
-
-    private boolean isKeyStoreEmpty() {
-        String[] aliases = mKeyStore.saw(Credentials.USER_PRIVATE_KEY);
-        return (aliases == null || aliases.length == 0);
     }
 
     @Override public void onCreate(Bundle savedState) {
@@ -71,11 +97,6 @@ public class KeyChainActivity extends ListActivity {
         // see if KeyStore has been unlocked, if not start activity to do so
         switch (mState) {
             case INITIAL:
-                if (isKeyStoreEmpty()) {
-                    finish(null);
-                    return;
-                }
-
                 if (!isKeyStoreUnlocked()) {
                     mState = State.UNLOCK_REQUESTED;
                     this.startActivityForResult(new Intent(Credentials.UNLOCK_ACTION),
@@ -86,7 +107,7 @@ public class KeyChainActivity extends ListActivity {
                     // onActivityResult is called with REQUEST_UNLOCK
                     return;
                 }
-                showAliasList();
+                new AliasLoader().execute();
                 return;
             case UNLOCK_REQUESTED:
                 // we've already asked, but have not heard back, probably just rotated.
@@ -97,38 +118,225 @@ public class KeyChainActivity extends ListActivity {
         }
     }
 
-    private void showAliasList() {
-
-        String[] aliases = mKeyStore.saw(Credentials.USER_PRIVATE_KEY);
-        if (aliases == null || aliases.length == 0) {
-            finish(null);
-            return;
+    private class AliasLoader extends AsyncTask<Void, Void, CertificateAdapter> {
+        @Override protected CertificateAdapter doInBackground(Void... params) {
+            String[] aliasArray = mKeyStore.saw(Credentials.USER_PRIVATE_KEY);
+            List<String> aliasList = ((aliasArray == null)
+                                      ? Collections.<String>emptyList()
+                                      : Arrays.asList(aliasArray));
+            Collections.sort(aliasList);
+            return new CertificateAdapter(aliasList);
         }
+        @Override protected void onPostExecute(CertificateAdapter result) {
+            mCertificateAdapter = result;
+            showDialog(DIALOG_CERT_CHOOSER);
+        }
+    }
 
-        final ArrayAdapter<String> adapter
-                = new ArrayAdapter<String>(this,
-                                           android.R.layout.simple_list_item_1,
-                                           aliases);
-        setListAdapter(adapter);
+    @Override protected Dialog onCreateDialog(int id, Bundle args) {
+        if (id == DIALOG_CERT_CHOOSER) {
+            return createCertChooserDialog();
+        }
+        throw new AssertionError();
+    }
 
-        ListView lv = getListView();
-        lv.setTextFilterEnabled(true);
-        lv.setOnItemClickListener(new OnItemClickListener() {
-            @Override public void onItemClick(AdapterView<?> parent,
-                                              View view,
-                                              int position,
-                                              long id) {
-                String alias = adapter.getItem(position);
-                finish(alias);
+    private Dialog createCertChooserDialog() {
+        View view = View.inflate(this, R.layout.cert_chooser, null);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setView(view);
+        builder.setNegativeButton(R.string.deny_button, new DialogInterface.OnClickListener() {
+            @Override public void onClick(DialogInterface dialog, int id) {
+                dialog.cancel(); // will cause OnDismissListener to be called
             }
         });
+
+        Resources res = getResources();
+
+        String title;
+        if (mCertificateAdapter.mAliases.isEmpty()) {
+            title = res.getString(R.string.title_no_certs);
+        } else {
+            title = res.getString(R.string.title_select_cert);
+            final ListView lv = (ListView) view.findViewById(R.id.cert_chooser_cert_list);
+            lv.setAdapter(mCertificateAdapter);
+            String alias = getIntent().getStringExtra(KeyChain.EXTRA_ALIAS);
+            if (alias != null) {
+                int position = mCertificateAdapter.mAliases.indexOf(alias);
+                if (position != -1) {
+                    lv.setItemChecked(position, true);
+                }
+            }
+
+            builder.setPositiveButton(R.string.allow_button, new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface dialog, int id) {
+                    int pos = lv.getCheckedItemPosition();
+                    String alias = ((pos != ListView.INVALID_POSITION)
+                                    ? mCertificateAdapter.getItem(pos)
+                                    : null);
+                    finish(alias);
+                }
+            });
+
+            lv.setVisibility(View.VISIBLE);
+        }
+        builder.setTitle(title);
+
+        PendingIntent sender = getIntent().getParcelableExtra(KeyChain.EXTRA_SENDER);
+        if (sender == null) {
+            // if no sender, bail, we need to identify the app to the user securely.
+            finish(null);
+        }
+
+        // getTargetPackage guarantees that the returned string is
+        // supplied by the system, so that an application can not
+        // spoof its package.
+        String pkg = sender.getIntentSender().getTargetPackage();
+        PackageManager pm = getPackageManager();
+        CharSequence applicationLabel;
+        try {
+            applicationLabel = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString();
+        } catch (PackageManager.NameNotFoundException e) {
+            applicationLabel = pkg;
+        }
+        String appMessage = String.format(res.getString(R.string.requesting_application),
+                                          applicationLabel);
+
+        String contextMessage = appMessage;
+        String host = getIntent().getStringExtra(KeyChain.EXTRA_HOST);
+        if (host != null) {
+            String hostString = host;
+            int port = getIntent().getIntExtra(KeyChain.EXTRA_PORT, -1);
+            if (port != -1) {
+                hostString += ":" + port;
+            }
+            String hostMessage = String.format(res.getString(R.string.requesting_server),
+                                               hostString);
+            if (contextMessage == null) {
+                contextMessage = hostMessage;
+            } else {
+                contextMessage += " " + hostMessage;
+            }
+        }
+        TextView contextView = (TextView) view.findViewById(R.id.cert_chooser_context_message);
+        contextView.setText(contextMessage);
+        contextView.setVisibility(View.VISIBLE);
+
+        String installMessage = String.format(res.getString(R.string.install_new_cert_message),
+                                              Credentials.EXTENSION_PFX, Credentials.EXTENSION_P12);
+        TextView installTextView = (TextView) view.findViewById(R.id.cert_chooser_install_message);
+        installTextView.setText(installMessage);
+
+        Button installButton = (Button) view.findViewById(R.id.cert_chooser_install_button);
+        installButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                // remove dialog so that we will recreate with
+                // possibly new content after install returns
+                removeDialog(DIALOG_CERT_CHOOSER);
+                Credentials.getInstance().install(KeyChainActivity.this);
+            }
+        });
+
+        Dialog dialog = builder.create();
+        dialog.setOnCancelListener(new DialogInterface.OnCancelListener() {
+            @Override public void onCancel(DialogInterface dialog) {
+                finish(null);
+            }
+        });
+        return dialog;
+    }
+
+    private class CertificateAdapter extends BaseAdapter {
+        private final List<String> mAliases;
+        private final List<String> mSubjects = new ArrayList<String>();
+        private CertificateAdapter(List<String> aliases) {
+            mAliases = aliases;
+            mSubjects.addAll(Collections.nCopies(aliases.size(), (String) null));
+        }
+        @Override public int getCount() {
+            return mAliases.size();
+        }
+        @Override public String getItem(int position) {
+            return mAliases.get(position);
+        }
+        @Override public long getItemId(int position) {
+            return position;
+        }
+        @Override public View getView(final int position, View view, ViewGroup parent) {
+            ViewHolder holder;
+            if (view == null) {
+                LayoutInflater inflater = LayoutInflater.from(KeyChainActivity.this);
+                view = inflater.inflate(R.layout.cert_item, parent, false);
+                holder = new ViewHolder();
+                holder.mAliasTextView = (TextView) view.findViewById(R.id.cert_item_alias);
+                holder.mSubjectTextView = (TextView) view.findViewById(R.id.cert_item_subject);
+                holder.mRadioButton = (RadioButton) view.findViewById(R.id.cert_item_selected);
+                view.setTag(holder);
+            } else {
+                holder = (ViewHolder) view.getTag();
+            }
+
+            String alias = mAliases.get(position);
+
+            holder.mAliasTextView.setText(alias);
+
+            String subject = mSubjects.get(position);
+            if (subject == null) {
+                new CertLoader(position, holder.mSubjectTextView).execute();
+            } else {
+                holder.mSubjectTextView.setText(subject);
+            }
+
+            ListView lv = (ListView)parent;
+            holder.mRadioButton.setChecked(position == lv.getCheckedItemPosition());
+            return view;
+        }
+
+        private class CertLoader extends AsyncTask<Void, Void, String> {
+            private final int mPosition;
+            private final TextView mSubjectView;
+            private CertLoader(int position, TextView subjectView) {
+                mPosition = position;
+                mSubjectView = subjectView;
+            }
+            @Override protected String doInBackground(Void... params) {
+                String alias = mAliases.get(mPosition);
+                byte[] bytes = mKeyStore.get(Credentials.USER_CERTIFICATE + alias);
+                if (bytes == null) {
+                    return null;
+                }
+                InputStream in = new ByteArrayInputStream(bytes);
+                X509Certificate cert;
+                try {
+                    CertificateFactory cf = CertificateFactory.getInstance("X.509");
+                    cert = (X509Certificate)cf.generateCertificate(in);
+                } catch (CertificateException ignored) {
+                    return null;
+                }
+                // bouncycastle can handle the emailAddress OID of 1.2.840.113549.1.9.1
+                X500Principal subjectPrincipal = cert.getSubjectX500Principal();
+                X509Name subjectName = X509Name.getInstance(subjectPrincipal.getEncoded());
+                String subjectString = subjectName.toString(true, X509Name.DefaultSymbols);
+                return subjectString;
+            }
+            @Override protected void onPostExecute(String subjectString) {
+                mSubjects.set(mPosition, subjectString);
+                mSubjectView.setText(subjectString);
+            }
+        }
+    }
+
+    private static class ViewHolder {
+        TextView mAliasTextView;
+        TextView mSubjectTextView;
+        RadioButton mRadioButton;
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         switch (requestCode) {
             case REQUEST_UNLOCK:
                 if (isKeyStoreUnlocked()) {
-                    showAliasList();
+                    showDialog(DIALOG_CERT_CHOOSER);
                 } else {
                     // user must have canceled unlock, give up
                     finish(null);
