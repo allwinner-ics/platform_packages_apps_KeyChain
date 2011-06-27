@@ -102,12 +102,7 @@ public class KeyChainService extends Service {
         }
 
         @Override public void installCaCertificate(byte[] caCertificate) {
-            // only the CertInstaller should be able to add new trusted CAs
-            final String expectedPackage = "com.android.certinstaller";
-            final String actualPackage = getPackageManager().getNameForUid(getCallingUid());
-            if (!expectedPackage.equals(actualPackage)) {
-                throw new IllegalStateException(actualPackage);
-            }
+            checkCertInstallerOrSystemCaller();
             try {
                 synchronized (mTrustedCertificateStore) {
                     mTrustedCertificateStore.installCertificate(parseCertificate(caCertificate));
@@ -126,11 +121,7 @@ public class KeyChainService extends Service {
 
         @Override public boolean reset() {
             // only Settings should be able to reset
-            final String expectedPackage = "android.uid.system:1000";
-            final String actualPackage = getPackageManager().getNameForUid(getCallingUid());
-            if (!expectedPackage.equals(actualPackage)) {
-                throw new IllegalStateException(actualPackage);
-            }
+            checkSystemCaller();
             boolean ok = true;
 
             synchronized (mAccountLock) {
@@ -156,19 +147,53 @@ public class KeyChainService extends Service {
                 // delete user-installed CA certs
                 for (String alias : mTrustedCertificateStore.aliases()) {
                     if (TrustedCertificateStore.isUser(alias)) {
-                        try {
-                            mTrustedCertificateStore.deleteCertificateEntry(alias);
-                        } catch (IOException e) {
-                            Log.w(TAG, "Problem removing CA certificate " + alias, e);
-                            ok = false;
-                        } catch (CertificateException e) {
-                            Log.w(TAG, "Problem removing CA certificate " + alias, e);
+                        if (!deleteCertificateEntry(alias)) {
                             ok = false;
                         }
                     }
                 }
                 return ok;
             }
+        }
+
+        @Override public boolean deleteCaCertificate(String alias) {
+            // only Settings should be able to delete
+            checkSystemCaller();
+            return deleteCertificateEntry(alias);
+        }
+
+        private boolean deleteCertificateEntry(String alias) {
+            try {
+                mTrustedCertificateStore.deleteCertificateEntry(alias);
+                return true;
+            } catch (IOException e) {
+                Log.w(TAG, "Problem removing CA certificate " + alias, e);
+                return false;
+            } catch (CertificateException e) {
+                Log.w(TAG, "Problem removing CA certificate " + alias, e);
+                return false;
+            }
+        }
+
+        private void checkCertInstallerOrSystemCaller() {
+            String actual = checkCaller("com.android.certinstaller");
+            if (actual == null) {
+                return;
+            }
+            checkSystemCaller();
+        }
+        private void checkSystemCaller() {
+            String actual = checkCaller("android.uid.system:1000");
+            if (actual != null) {
+                throw new IllegalStateException(actual);
+            }
+        }
+        /**
+         * Returns null if actually caller is expected, otherwise return bad package to report
+         */
+        private String checkCaller(String expectedPackage) {
+            String actualPackage = getPackageManager().getNameForUid(getCallingUid());
+            return (!expectedPackage.equals(actualPackage)) ? actualPackage : null;
         }
     };
 
