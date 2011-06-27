@@ -141,20 +141,22 @@ public class KeyChainActivity extends Activity {
     }
 
     private Dialog createCertChooserDialog() {
-        View view = View.inflate(this, R.layout.cert_chooser, null);
-
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
+
+        View view = View.inflate(this, R.layout.cert_chooser, null);
         builder.setView(view);
-        builder.setNegativeButton(R.string.deny_button, new DialogInterface.OnClickListener() {
+
+        boolean empty = mCertificateAdapter.mAliases.isEmpty();
+        int negativeLabel = empty ? android.R.string.cancel : R.string.deny_button;
+        builder.setNegativeButton(negativeLabel, new DialogInterface.OnClickListener() {
             @Override public void onClick(DialogInterface dialog, int id) {
                 dialog.cancel(); // will cause OnDismissListener to be called
             }
         });
 
-        Resources res = getResources();
-
         String title;
-        if (mCertificateAdapter.mAliases.isEmpty()) {
+        Resources res = getResources();
+        if (empty) {
             title = res.getString(R.string.title_no_certs);
         } else {
             title = res.getString(R.string.title_select_cert);
