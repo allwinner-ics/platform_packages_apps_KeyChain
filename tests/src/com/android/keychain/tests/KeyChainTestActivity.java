@@ -22,7 +22,6 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.RemoteException;
 import android.os.StrictMode;
-import android.security.Credentials;
 import android.security.KeyChain;
 import android.security.KeyChainAliasCallback;
 import android.security.KeyChainException;
@@ -164,9 +163,9 @@ public class KeyChainTestActivity extends Activity {
         try {
             log("Requesting install of server's CA...");
             X509Certificate ca = mTestKeyStore.getRootCertificate("RSA");
-            Intent intent = new Intent("android.credentials.INSTALL");
-            intent.putExtra("name", TAG); // "name" = CredentialHelper.CERT_NAME_KEY
-            intent.putExtra(Credentials.CERTIFICATE, Credentials.convertToPem(ca));
+            Intent intent = KeyChain.createInstallIntent();
+            intent.putExtra(KeyChain.EXTRA_NAME, TAG);
+            intent.putExtra(KeyChain.EXTRA_CERTIFICATE, ca.getEncoded());
             startActivityForResult(intent, REQUEST_CA_INSTALL);
         } catch (Exception e) {
             throw new AssertionError(e);
