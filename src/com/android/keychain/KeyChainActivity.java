@@ -59,8 +59,6 @@ public class KeyChainActivity extends Activity {
 
     private static final int REQUEST_UNLOCK = 1;
 
-    private static final int DIALOG_CERT_CHOOSER = 0;
-
     private static enum State { INITIAL, UNLOCK_REQUESTED };
 
     private State mState;
@@ -70,8 +68,6 @@ public class KeyChainActivity extends Activity {
     // do not cause StrictMode violations, they logically should not
     // be done on the UI thread.
     private KeyStore mKeyStore = KeyStore.getInstance();
-
-    private CertificateAdapter mCertificateAdapter;
 
     // the KeyStore.state operation is safe to do on the UI thread, it
     // does not do a file operation.
@@ -107,7 +103,7 @@ public class KeyChainActivity extends Activity {
                     // onActivityResult is called with REQUEST_UNLOCK
                     return;
                 }
-                new AliasLoader().execute();
+                showCertChooserDialog();
                 return;
             case UNLOCK_REQUESTED:
                 // we've already asked, but have not heard back, probably just rotated.
@@ -116,6 +112,10 @@ public class KeyChainActivity extends Activity {
             default:
                 throw new AssertionError();
         }
+    }
+
+    private void showCertChooserDialog() {
+        new AliasLoader().execute();
     }
 
     private class AliasLoader extends AsyncTask<Void, Void, CertificateAdapter> {
@@ -127,26 +127,18 @@ public class KeyChainActivity extends Activity {
             Collections.sort(aliasList);
             return new CertificateAdapter(aliasList);
         }
-        @Override protected void onPostExecute(CertificateAdapter result) {
-            mCertificateAdapter = result;
-            showDialog(DIALOG_CERT_CHOOSER);
+        @Override protected void onPostExecute(CertificateAdapter adapter) {
+            displayCertChooserDialog(adapter);
         }
     }
 
-    @Override protected Dialog onCreateDialog(int id, Bundle args) {
-        if (id == DIALOG_CERT_CHOOSER) {
-            return createCertChooserDialog();
-        }
-        throw new AssertionError();
-    }
-
-    private Dialog createCertChooserDialog() {
+    private void displayCertChooserDialog(final CertificateAdapter adapter) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
 
         View view = View.inflate(this, R.layout.cert_chooser, null);
         builder.setView(view);
 
-        boolean empty = mCertificateAdapter.mAliases.isEmpty();
+        boolean empty = adapter.mAliases.isEmpty();
         int negativeLabel = empty ? android.R.string.cancel : R.string.deny_button;
         builder.setNegativeButton(negativeLabel, new DialogInterface.OnClickListener() {
             @Override public void onClick(DialogInterface dialog, int id) {
@@ -161,10 +153,10 @@ public class KeyChainActivity extends Activity {
         } else {
             title = res.getString(R.string.title_select_cert);
             final ListView lv = (ListView) view.findViewById(R.id.cert_chooser_cert_list);
-            lv.setAdapter(mCertificateAdapter);
+            lv.setAdapter(adapter);
             String alias = getIntent().getStringExtra(KeyChain.EXTRA_ALIAS);
             if (alias != null) {
-                int position = mCertificateAdapter.mAliases.indexOf(alias);
+                int position = adapter.mAliases.indexOf(alias);
                 if (position != -1) {
                     lv.setItemChecked(position, true);
                 }
@@ -174,7 +166,7 @@ public class KeyChainActivity extends Activity {
                 @Override public void onClick(DialogInterface dialog, int id) {
                     int pos = lv.getCheckedItemPosition();
                     String alias = ((pos != ListView.INVALID_POSITION)
-                                    ? mCertificateAdapter.getItem(pos)
+                                    ? adapter.getItem(pos)
                                     : null);
                     finish(alias);
                 }
@@ -183,6 +175,7 @@ public class KeyChainActivity extends Activity {
             lv.setVisibility(View.VISIBLE);
         }
         builder.setTitle(title);
+        final Dialog dialog = builder.create();
 
         PendingIntent sender = getIntent().getParcelableExtra(KeyChain.EXTRA_SENDER);
         if (sender == null) {
@@ -234,18 +227,17 @@ public class KeyChainActivity extends Activity {
             @Override public void onClick(View v) {
                 // remove dialog so that we will recreate with
                 // possibly new content after install returns
-                removeDialog(DIALOG_CERT_CHOOSER);
+                dialog.dismiss();
                 Credentials.getInstance().install(KeyChainActivity.this);
             }
         });
 
-        Dialog dialog = builder.create();
         dialog.setOnCancelListener(new DialogInterface.OnCancelListener() {
             @Override public void onCancel(DialogInterface dialog) {
                 finish(null);
             }
         });
-        return dialog;
+        dialog.show();
     }
 
     private class CertificateAdapter extends BaseAdapter {
@@ -338,7 +330,7 @@ public class KeyChainActivity extends Activity {
         switch (requestCode) {
             case REQUEST_UNLOCK:
                 if (isKeyStoreUnlocked()) {
-                    showDialog(DIALOG_CERT_CHOOSER);
+                    showCertChooserDialog();
                 } else {
                     // user must have canceled unlock, give up
                     finish(null);
