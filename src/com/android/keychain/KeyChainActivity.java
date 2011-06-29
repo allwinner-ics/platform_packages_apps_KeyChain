@@ -135,8 +135,14 @@ public class KeyChainActivity extends Activity {
     private void displayCertChooserDialog(final CertificateAdapter adapter) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
 
-        View view = View.inflate(this, R.layout.cert_chooser, null);
-        builder.setView(view);
+        TextView contextView = (TextView) View.inflate(this, R.layout.cert_chooser_header, null);
+        View footer = View.inflate(this, R.layout.cert_chooser_footer, null);
+
+        final ListView lv = (ListView) View.inflate(this, R.layout.cert_chooser, null);
+        lv.addHeaderView(contextView);
+        lv.addFooterView(footer);
+        lv.setAdapter(adapter);
+        builder.setView(lv);
 
         boolean empty = adapter.mAliases.isEmpty();
         int negativeLabel = empty ? android.R.string.cancel : R.string.deny_button;
@@ -152,8 +158,6 @@ public class KeyChainActivity extends Activity {
             title = res.getString(R.string.title_no_certs);
         } else {
             title = res.getString(R.string.title_select_cert);
-            final ListView lv = (ListView) view.findViewById(R.id.cert_chooser_cert_list);
-            lv.setAdapter(adapter);
             String alias = getIntent().getStringExtra(KeyChain.EXTRA_ALIAS);
             if (alias != null) {
                 int position = adapter.mAliases.indexOf(alias);
@@ -171,8 +175,6 @@ public class KeyChainActivity extends Activity {
                     finish(alias);
                 }
             });
-
-            lv.setVisibility(View.VISIBLE);
         }
         builder.setTitle(title);
         final Dialog dialog = builder.create();
@@ -213,16 +215,14 @@ public class KeyChainActivity extends Activity {
                 contextMessage += " " + hostMessage;
             }
         }
-        TextView contextView = (TextView) view.findViewById(R.id.cert_chooser_context_message);
         contextView.setText(contextMessage);
-        contextView.setVisibility(View.VISIBLE);
 
         String installMessage = String.format(res.getString(R.string.install_new_cert_message),
                                               Credentials.EXTENSION_PFX, Credentials.EXTENSION_P12);
-        TextView installTextView = (TextView) view.findViewById(R.id.cert_chooser_install_message);
+        TextView installTextView = (TextView) footer.findViewById(R.id.cert_chooser_install_message);
         installTextView.setText(installMessage);
 
-        Button installButton = (Button) view.findViewById(R.id.cert_chooser_install_button);
+        Button installButton = (Button) footer.findViewById(R.id.cert_chooser_install_button);
         installButton.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 // remove dialog so that we will recreate with
