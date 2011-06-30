@@ -213,7 +213,7 @@ public class KeyChainService extends Service {
 
         @Override public Bundle editProperties(AccountAuthenticatorResponse response,
                                                String accountType) {
-            return null;
+            return new Bundle();
         }
 
         @Override public Bundle addAccount(AccountAuthenticatorResponse response,
@@ -221,13 +221,18 @@ public class KeyChainService extends Service {
                                            String authTokenType,
                                            String[] requiredFeatures,
                                            Bundle options) {
-            return null;
+            Bundle result = new Bundle();
+            result.putString(AccountManager.KEY_ACCOUNT_NAME, mAccount.name);
+            result.putString(AccountManager.KEY_ACCOUNT_TYPE, KeyChain.ACCOUNT_TYPE);
+            return result;
         }
 
         @Override public Bundle confirmCredentials(AccountAuthenticatorResponse response,
                                                    Account account,
                                                    Bundle options) {
-            return null;
+            Bundle result = new Bundle();
+            result.putBoolean(AccountManager.KEY_BOOLEAN_RESULT, true);
+            return result;
         }
 
         /**
@@ -257,42 +262,44 @@ public class KeyChainService extends Service {
                                                   Account account,
                                                   String authTokenType,
                                                   Bundle options) {
-            return null;
+            Bundle bundle = new Bundle();
+            bundle.putString(AccountManager.KEY_ACCOUNT_NAME, account.name);
+            bundle.putString(AccountManager.KEY_ACCOUNT_TYPE, KeyChain.ACCOUNT_TYPE);
+            return bundle;
         }
 
         @Override public Bundle hasFeatures(AccountAuthenticatorResponse response,
                                             Account account,
                                             String[] features) {
-            return null;
+            Bundle result = new Bundle();
+            result.putBoolean(AccountManager.KEY_BOOLEAN_RESULT, features.length == 0);
+            return result;
         }
     };
 
     private final IBinder mAuthenticator = new KeyChainAccountAuthenticator(this).getIBinder();
 
     @Override public IBinder onBind(Intent intent) {
-        if (IKeyChainService.class.getName().equals(intent.getAction())) {
-
-            // ensure singleton keychain account exists
-            synchronized (mAccountLock) {
-                Account[] accounts = mAccountManager.getAccountsByType(KeyChain.ACCOUNT_TYPE);
-                if (accounts.length == 0) {
-                    // TODO localize account name
-                    mAccount = new Account("Android Key Chain", KeyChain.ACCOUNT_TYPE);
-                    mAccountManager.addAccountExplicitly(mAccount, null, null);
-                } else if (accounts.length == 1) {
-                    mAccount = accounts[0];
-                } else {
-                    throw new IllegalStateException();
-                }
+        // ensure singleton keychain account exists for both
+        // IKeyChainService and AbstractAccountAuthenticator
+        synchronized (mAccountLock) {
+            Account[] accounts = mAccountManager.getAccountsByType(KeyChain.ACCOUNT_TYPE);
+            if (accounts.length == 0) {
+                mAccount = new Account(getResources().getString(R.string.app_name),
+                                       KeyChain.ACCOUNT_TYPE);
+                mAccountManager.addAccountExplicitly(mAccount, null, null);
+            } else if (accounts.length == 1) {
+                mAccount = accounts[0];
+            } else {
+                throw new IllegalStateException();
             }
-
+        }
+        if (IKeyChainService.class.getName().equals(intent.getAction())) {
             return mIKeyChainService;
         }
-
         if (AccountManager.ACTION_AUTHENTICATOR_INTENT.equals(intent.getAction())) {
             return mAuthenticator;
         }
-
         return null;
     }
 }
