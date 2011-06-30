@@ -139,8 +139,8 @@ public class KeyChainActivity extends Activity {
         View footer = View.inflate(this, R.layout.cert_chooser_footer, null);
 
         final ListView lv = (ListView) View.inflate(this, R.layout.cert_chooser, null);
-        lv.addHeaderView(contextView);
-        lv.addFooterView(footer);
+        lv.addHeaderView(contextView, null, false);
+        lv.addFooterView(footer, null, false);
         lv.setAdapter(adapter);
         builder.setView(lv);
 
@@ -160,17 +160,19 @@ public class KeyChainActivity extends Activity {
             title = res.getString(R.string.title_select_cert);
             String alias = getIntent().getStringExtra(KeyChain.EXTRA_ALIAS);
             if (alias != null) {
-                int position = adapter.mAliases.indexOf(alias);
-                if (position != -1) {
-                    lv.setItemChecked(position, true);
+                int adapterPosition = adapter.mAliases.indexOf(alias);
+                if (adapterPosition != -1) {
+                    int listViewPosition = adapterPosition+1;
+                    lv.setItemChecked(listViewPosition, true);
                 }
             }
 
             builder.setPositiveButton(R.string.allow_button, new DialogInterface.OnClickListener() {
                 @Override public void onClick(DialogInterface dialog, int id) {
-                    int pos = lv.getCheckedItemPosition();
-                    String alias = ((pos != ListView.INVALID_POSITION)
-                                    ? adapter.getItem(pos)
+                    int listViewPosition = lv.getCheckedItemPosition();
+                    int adapterPosition = listViewPosition-1;
+                    String alias = ((adapterPosition >= 0)
+                                    ? adapter.getItem(adapterPosition)
                                     : null);
                     finish(alias);
                 }
@@ -219,8 +221,8 @@ public class KeyChainActivity extends Activity {
 
         String installMessage = String.format(res.getString(R.string.install_new_cert_message),
                                               Credentials.EXTENSION_PFX, Credentials.EXTENSION_P12);
-        TextView installTextView = (TextView) footer.findViewById(R.id.cert_chooser_install_message);
-        installTextView.setText(installMessage);
+        TextView installText = (TextView) footer.findViewById(R.id.cert_chooser_install_message);
+        installText.setText(installMessage);
 
         Button installButton = (Button) footer.findViewById(R.id.cert_chooser_install_button);
         installButton.setOnClickListener(new View.OnClickListener() {
@@ -250,13 +252,13 @@ public class KeyChainActivity extends Activity {
         @Override public int getCount() {
             return mAliases.size();
         }
-        @Override public String getItem(int position) {
-            return mAliases.get(position);
+        @Override public String getItem(int adapterPosition) {
+            return mAliases.get(adapterPosition);
         }
-        @Override public long getItemId(int position) {
-            return position;
+        @Override public long getItemId(int adapterPosition) {
+            return adapterPosition;
         }
-        @Override public View getView(final int position, View view, ViewGroup parent) {
+        @Override public View getView(final int adapterPosition, View view, ViewGroup parent) {
             ViewHolder holder;
             if (view == null) {
                 LayoutInflater inflater = LayoutInflater.from(KeyChainActivity.this);
@@ -270,31 +272,33 @@ public class KeyChainActivity extends Activity {
                 holder = (ViewHolder) view.getTag();
             }
 
-            String alias = mAliases.get(position);
+            String alias = mAliases.get(adapterPosition);
 
             holder.mAliasTextView.setText(alias);
 
-            String subject = mSubjects.get(position);
+            String subject = mSubjects.get(adapterPosition);
             if (subject == null) {
-                new CertLoader(position, holder.mSubjectTextView).execute();
+                new CertLoader(adapterPosition, holder.mSubjectTextView).execute();
             } else {
                 holder.mSubjectTextView.setText(subject);
             }
 
             ListView lv = (ListView)parent;
-            holder.mRadioButton.setChecked(position == lv.getCheckedItemPosition());
+            int listViewCheckedItemPosition = lv.getCheckedItemPosition();
+            int adapterCheckedItemPosition = listViewCheckedItemPosition-1;
+            holder.mRadioButton.setChecked(adapterPosition == adapterCheckedItemPosition);
             return view;
         }
 
         private class CertLoader extends AsyncTask<Void, Void, String> {
-            private final int mPosition;
+            private final int mAdapterPosition;
             private final TextView mSubjectView;
-            private CertLoader(int position, TextView subjectView) {
-                mPosition = position;
+            private CertLoader(int adapterPosition, TextView subjectView) {
+                mAdapterPosition = adapterPosition;
                 mSubjectView = subjectView;
             }
             @Override protected String doInBackground(Void... params) {
-                String alias = mAliases.get(mPosition);
+                String alias = mAliases.get(mAdapterPosition);
                 byte[] bytes = mKeyStore.get(Credentials.USER_CERTIFICATE + alias);
                 if (bytes == null) {
                     return null;
@@ -314,7 +318,7 @@ public class KeyChainActivity extends Activity {
                 return subjectString;
             }
             @Override protected void onPostExecute(String subjectString) {
-                mSubjects.set(mPosition, subjectString);
+                mSubjects.set(mAdapterPosition, subjectString);
                 mSubjectView.setText(subjectString);
             }
         }
