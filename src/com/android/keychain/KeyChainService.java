@@ -125,7 +125,7 @@ public class KeyChainService extends Service {
             boolean ok = true;
 
             synchronized (mAccountLock) {
-                // remote Accounts from AccountManager to revoke any
+                // remove Accounts from AccountManager to revoke any
                 // granted credential grants to applications
                 Account[] accounts = mAccountManager.getAccountsByType(KeyChain.ACCOUNT_TYPE);
                 for (Account a : accounts) {

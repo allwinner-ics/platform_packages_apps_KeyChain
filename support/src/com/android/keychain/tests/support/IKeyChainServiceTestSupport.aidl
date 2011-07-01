@@ -21,9 +21,9 @@ import android.accounts.Account;
  * Service that runs as the system user for the use of the
  * KeyChainServiceTest which needs to run as a regular app user, but
  * needs to automate some steps only permissable to the system
- * user. The KeyChainService itself runs as the keychain user and
- * cannot do these steps itself. In a real application, they user is
- * prompted to perform these steps via the
+ * user. In particular, revokeAppPermission and grantAppPermission
+ * must be run within the system_server itself. In a real application,
+ * they user is prompted to perform these steps via the
  * com.android.credentials.UNLOCK Intent and
  * GrantCredentialsPermissionActivity.
  *

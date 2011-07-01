@@ -15,7 +15,6 @@
 -->
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
     <string name="app_name">Key Chain</string>
-    <string name="keychainUserLabel">keychain</string>
 
     <!-- Dialog title when no certificates were found -->
     <string name="title_no_certs">No certificates found</string>
