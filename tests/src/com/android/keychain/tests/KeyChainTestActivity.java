@@ -253,7 +253,9 @@ public class KeyChainTestActivity extends Activity {
                     log("Null certificate chain!");
                     return null;
                 }
-                log("certificate=" + certificateChain[0]);
+                for (int i = 0; i < certificateChain.length; i++) {
+                    log("certificate[" + i + "]=" + certificateChain[i]);
+                }
                 return certificateChain;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
