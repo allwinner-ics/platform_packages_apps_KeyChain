@@ -357,15 +357,32 @@ public class KeyChainActivity extends Activity {
                 = IKeyChainAliasCallback.Stub.asInterface(
                         getIntent().getIBinderExtra(KeyChain.EXTRA_RESPONSE));
         if (keyChainAliasResponse != null) {
+            new ResponseSender(keyChainAliasResponse, alias).execute();
+            return;
+        }
+        finish();
+    }
+
+    private class ResponseSender extends AsyncTask<Void, Void, Void> {
+        private IKeyChainAliasCallback mKeyChainAliasResponse;
+        private String mAlias;
+        private ResponseSender(IKeyChainAliasCallback keyChainAliasResponse, String alias) {
+            mKeyChainAliasResponse = keyChainAliasResponse;
+            mAlias = alias;
+        }
+        @Override protected Void doInBackground(Void... unused) {
             try {
-                keyChainAliasResponse.alias(alias);
+                mKeyChainAliasResponse.alias(mAlias);
             } catch (Exception ignored) {
                 // don't just catch RemoteException, caller could
                 // throw back a RuntimeException across processes
                 // which we should protect against.
             }
+            return null;
         }
-        finish();
+        @Override protected void onPostExecute(Void unused) {
+            finish();
+        }
     }
 
     @Override public void onBackPressed() {
