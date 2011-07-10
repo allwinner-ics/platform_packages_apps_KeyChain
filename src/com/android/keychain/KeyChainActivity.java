@@ -160,11 +160,17 @@ public class KeyChainActivity extends Activity {
             title = res.getString(R.string.title_select_cert);
             String alias = getIntent().getStringExtra(KeyChain.EXTRA_ALIAS);
             if (alias != null) {
+                // if alias was requested, set it if found
                 int adapterPosition = adapter.mAliases.indexOf(alias);
                 if (adapterPosition != -1) {
                     int listViewPosition = adapterPosition+1;
                     lv.setItemChecked(listViewPosition, true);
                 }
+            } else if (adapter.mAliases.size() == 1) {
+                // if only one choice, preselect it
+                int adapterPosition = 0;
+                int listViewPosition = adapterPosition+1;
+                lv.setItemChecked(listViewPosition, true);
             }
 
             builder.setPositiveButton(R.string.allow_button, new DialogInterface.OnClickListener() {
