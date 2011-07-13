@@ -26,11 +26,11 @@ import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.os.AsyncTask;
 import android.os.Bundle;
-import android.os.RemoteException;
 import android.security.Credentials;
 import android.security.IKeyChainAliasCallback;
 import android.security.KeyChain;
 import android.security.KeyStore;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -49,15 +49,19 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+
 import javax.security.auth.x500.X500Principal;
 
 public class KeyChainActivity extends Activity {
-
-    private static final String TAG = "KeyChainActivity";
+    private static final String TAG = "KeyChain";
 
     private static String KEY_STATE = "state";
 
     private static final int REQUEST_UNLOCK = 1;
+
+    private int mSenderUid;
+
+    private PendingIntent mSender;
 
     private static enum State { INITIAL, UNLOCK_REQUESTED };
 
@@ -89,6 +93,22 @@ public class KeyChainActivity extends Activity {
 
     @Override public void onResume() {
         super.onResume();
+
+        mSender = getIntent().getParcelableExtra(KeyChain.EXTRA_SENDER);
+        if (mSender == null) {
+            // if no sender, bail, we need to identify the app to the user securely.
+            finish(null);
+            return;
+        }
+        try {
+            mSenderUid = getPackageManager().getPackageInfo(
+                    mSender.getIntentSender().getTargetPackage(), 0).applicationInfo.uid;
+        } catch (PackageManager.NameNotFoundException e) {
+            // if unable to find the sender package info bail,
+            // we need to identify the app to the user securely.
+            finish(null);
+            return;
+        }
 
         // see if KeyStore has been unlocked, if not start activity to do so
         switch (mState) {
@@ -187,16 +207,11 @@ public class KeyChainActivity extends Activity {
         builder.setTitle(title);
         final Dialog dialog = builder.create();
 
-        PendingIntent sender = getIntent().getParcelableExtra(KeyChain.EXTRA_SENDER);
-        if (sender == null) {
-            // if no sender, bail, we need to identify the app to the user securely.
-            finish(null);
-        }
 
         // getTargetPackage guarantees that the returned string is
         // supplied by the system, so that an application can not
         // spoof its package.
-        String pkg = sender.getIntentSender().getTargetPackage();
+        String pkg = mSender.getIntentSender().getTargetPackage();
         PackageManager pm = getPackageManager();
         CharSequence applicationLabel;
         try {
@@ -378,11 +393,23 @@ public class KeyChainActivity extends Activity {
         }
         @Override protected Void doInBackground(Void... unused) {
             try {
+                if (mAlias != null) {
+                    KeyChain.KeyChainConnection connection = KeyChain.bind(KeyChainActivity.this);
+                    try {
+                        connection.getService().setGrant(mSenderUid, mAlias, true);
+                    } finally {
+                        connection.close();
+                    }
+                }
                 mKeyChainAliasResponse.alias(mAlias);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                Log.d(TAG, "interrupted while granting access", ignored);
             } catch (Exception ignored) {
                 // don't just catch RemoteException, caller could
                 // throw back a RuntimeException across processes
                 // which we should protect against.
+                Log.e(TAG, "error while granting access", ignored);
             }
             return null;
         }

@@ -16,78 +16,89 @@
 
 package com.android.keychain;
 
-import android.accounts.AbstractAccountAuthenticator;
-import android.accounts.Account;
-import android.accounts.AccountAuthenticatorResponse;
-import android.accounts.AccountManager;
-import android.accounts.AccountsException;
-import android.accounts.NetworkErrorException;
-import android.app.Service;
+import android.app.IntentService;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Bundle;
+import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.database.DatabaseUtils;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteOpenHelper;
 import android.os.IBinder;
 import android.security.Credentials;
 import android.security.IKeyChainService;
-import android.security.KeyChain;
 import android.security.KeyStore;
 import android.util.Log;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.charset.Charsets;
-import java.security.SecureRandom;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
-import java.util.Collections;
-import javax.security.auth.x500.X500Principal;
-import libcore.io.Base64;
+
 import org.apache.harmony.xnet.provider.jsse.TrustedCertificateStore;
 
-public class KeyChainService extends Service {
+public class KeyChainService extends IntentService {
+    private static final String TAG = "KeyChain";
 
-    private static final String TAG = "KeyChainService";
+    private static final String DATABASE_NAME = "grants.db";
+    private static final int DATABASE_VERSION = 1;
+    private static final String TABLE_GRANTS = "grants";
+    private static final String GRANTS_ALIAS = "alias";
+    private static final String GRANTS_GRANTEE_UID = "uid";
 
-    private AccountManager mAccountManager;
+    /** created in onCreate(), closed in onDestroy() */
+    public DatabaseHelper mDatabaseHelper;
 
-    private final Object mAccountLock = new Object();
-    private Account mAccount;
+    private static final String SELECTION_COUNT_OF_MATCHING_GRANTS =
+            "SELECT COUNT(*) FROM " + TABLE_GRANTS
+                    + " WHERE " + GRANTS_GRANTEE_UID + "=? AND " + GRANTS_ALIAS + "=?";
+
+    private static final String SELECT_GRANTS_BY_UID_AND_ALIAS =
+            GRANTS_GRANTEE_UID + "=? AND " + GRANTS_ALIAS + "=?";
+
+    private static final String SELECTION_GRANTS_BY_UID = GRANTS_GRANTEE_UID + "=?";
+
+    public KeyChainService() {
+        super(KeyChainService.class.getSimpleName());
+    }
 
     @Override public void onCreate() {
         super.onCreate();
-        mAccountManager = AccountManager.get(this);
+        mDatabaseHelper = new DatabaseHelper(this);
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        mDatabaseHelper.close();
+        mDatabaseHelper = null;
     }
 
     private final IKeyChainService.Stub mIKeyChainService = new IKeyChainService.Stub() {
-
         private final KeyStore mKeyStore = KeyStore.getInstance();
         private final TrustedCertificateStore mTrustedCertificateStore
                 = new TrustedCertificateStore();
 
-        @Override public byte[] getPrivateKey(String alias, String authToken) {
-            return getKeyStoreEntry(Credentials.USER_PRIVATE_KEY, alias, authToken);
+        @Override public byte[] getPrivateKey(String alias) {
+            return getKeyStoreEntry(Credentials.USER_PRIVATE_KEY, alias);
         }
 
-        @Override public byte[] getCertificate(String alias, String authToken) {
-            return getKeyStoreEntry(Credentials.USER_CERTIFICATE, alias, authToken);
+        @Override public byte[] getCertificate(String alias) {
+            return getKeyStoreEntry(Credentials.USER_CERTIFICATE, alias);
         }
 
-        private byte[] getKeyStoreEntry(String type, String alias, String authToken) {
+        private byte[] getKeyStoreEntry(String type, String alias) {
             if (alias == null) {
                 throw new NullPointerException("alias == null");
-            }
-            if (authToken == null) {
-                throw new NullPointerException("authtoken == null");
             }
             if (!isKeyStoreUnlocked()) {
                 throw new IllegalStateException("keystore locked");
             }
-            String peekedAuthToken = mAccountManager.peekAuthToken(mAccount, alias);
-            if (peekedAuthToken == null) {
-                throw new IllegalStateException("peekedAuthToken == null");
-            }
-            if (!peekedAuthToken.equals(authToken)) {
-                throw new IllegalStateException("authtoken mismatch");
+            final int callingUid = getCallingUid();
+            if (!hasGrantInternal(mDatabaseHelper.getReadableDatabase(), callingUid, alias)) {
+                throw new IllegalStateException("uid " + callingUid
+                        + " doesn't have permission to access the requested alias");
             }
             String key = type + alias;
             byte[] bytes =  mKeyStore.get(key);
@@ -122,27 +133,8 @@ public class KeyChainService extends Service {
         @Override public boolean reset() {
             // only Settings should be able to reset
             checkSystemCaller();
+            removeAllGrants(mDatabaseHelper.getWritableDatabase());
             boolean ok = true;
-
-            synchronized (mAccountLock) {
-                // remove Accounts from AccountManager to revoke any
-                // granted credential grants to applications
-                Account[] accounts = mAccountManager.getAccountsByType(KeyChain.ACCOUNT_TYPE);
-                for (Account a : accounts) {
-                    try {
-                        if (!mAccountManager.removeAccount(a, null, null).getResult()) {
-                            ok = false;
-                        }
-                    } catch (AccountsException e) {
-                        Log.w(TAG, "Problem removing account " + a, e);
-                        ok = false;
-                    } catch (IOException e) {
-                        Log.w(TAG, "Problem removing account " + a, e);
-                        ok = false;
-                    }
-                }
-            }
-
             synchronized (mTrustedCertificateStore) {
                 // delete user-installed CA certs
                 for (String alias : mTrustedCertificateStore.aliases()) {
@@ -195,111 +187,106 @@ public class KeyChainService extends Service {
             String actualPackage = getPackageManager().getNameForUid(getCallingUid());
             return (!expectedPackage.equals(actualPackage)) ? actualPackage : null;
         }
-    };
 
-    private class KeyChainAccountAuthenticator extends AbstractAccountAuthenticator {
-
-        /**
-         * 264 was picked becuase it is the length in bytes of Google
-         * authtokens which seems sufficiently long and guaranteed to
-         * be storable by AccountManager.
-         */
-        private final int AUTHTOKEN_LENGTH = 264;
-        private final SecureRandom mSecureRandom = new SecureRandom();
-
-        private KeyChainAccountAuthenticator(Context context) {
-            super(context);
+        @Override public boolean hasGrant(int uid, String alias) {
+            checkSystemCaller();
+            return hasGrantInternal(mDatabaseHelper.getReadableDatabase(), uid, alias);
         }
 
-        @Override public Bundle editProperties(AccountAuthenticatorResponse response,
-                                               String accountType) {
-            return new Bundle();
-        }
-
-        @Override public Bundle addAccount(AccountAuthenticatorResponse response,
-                                           String accountType,
-                                           String authTokenType,
-                                           String[] requiredFeatures,
-                                           Bundle options) {
-            Bundle result = new Bundle();
-            result.putString(AccountManager.KEY_ACCOUNT_NAME, mAccount.name);
-            result.putString(AccountManager.KEY_ACCOUNT_TYPE, KeyChain.ACCOUNT_TYPE);
-            return result;
-        }
-
-        @Override public Bundle confirmCredentials(AccountAuthenticatorResponse response,
-                                                   Account account,
-                                                   Bundle options) {
-            Bundle result = new Bundle();
-            result.putBoolean(AccountManager.KEY_BOOLEAN_RESULT, true);
-            return result;
-        }
-
-        /**
-         * Called on an AccountManager cache miss, so generate a new value.
-         */
-        @Override public Bundle getAuthToken(AccountAuthenticatorResponse response,
-                                             Account account,
-                                             String authTokenType,
-                                             Bundle options) {
-            byte[] bytes = new byte[AUTHTOKEN_LENGTH];
-            mSecureRandom.nextBytes(bytes);
-            String authToken = Base64.encode(bytes);
-            Bundle bundle = new Bundle();
-            bundle.putString(AccountManager.KEY_ACCOUNT_NAME, account.name);
-            bundle.putString(AccountManager.KEY_ACCOUNT_TYPE, KeyChain.ACCOUNT_TYPE);
-            bundle.putString(AccountManager.KEY_AUTHTOKEN, authToken);
-            return bundle;
-        }
-
-        @Override public String getAuthTokenLabel(String authTokenType) {
-            // return authTokenType unchanged, it was a user specified
-            // alias name, doesn't need to be localized
-            return authTokenType;
-        }
-
-        @Override public Bundle updateCredentials(AccountAuthenticatorResponse response,
-                                                  Account account,
-                                                  String authTokenType,
-                                                  Bundle options) {
-            Bundle bundle = new Bundle();
-            bundle.putString(AccountManager.KEY_ACCOUNT_NAME, account.name);
-            bundle.putString(AccountManager.KEY_ACCOUNT_TYPE, KeyChain.ACCOUNT_TYPE);
-            return bundle;
-        }
-
-        @Override public Bundle hasFeatures(AccountAuthenticatorResponse response,
-                                            Account account,
-                                            String[] features) {
-            Bundle result = new Bundle();
-            result.putBoolean(AccountManager.KEY_BOOLEAN_RESULT, features.length == 0);
-            return result;
+        @Override public void setGrant(int uid, String alias, boolean value) {
+            checkSystemCaller();
+            setGrantInternal(mDatabaseHelper.getWritableDatabase(), uid, alias, value);
         }
     };
 
-    private final IBinder mAuthenticator = new KeyChainAccountAuthenticator(this).getIBinder();
+    private boolean hasGrantInternal(final SQLiteDatabase db, final int uid, final String alias) {
+        final long numMatches = DatabaseUtils.longForQuery(db, SELECTION_COUNT_OF_MATCHING_GRANTS,
+                new String[]{String.valueOf(uid), alias});
+        return numMatches > 0;
+    }
 
-    @Override public IBinder onBind(Intent intent) {
-        // ensure singleton keychain account exists for both
-        // IKeyChainService and AbstractAccountAuthenticator
-        synchronized (mAccountLock) {
-            Account[] accounts = mAccountManager.getAccountsByType(KeyChain.ACCOUNT_TYPE);
-            if (accounts.length == 0) {
-                mAccount = new Account(getResources().getString(R.string.app_name),
-                                       KeyChain.ACCOUNT_TYPE);
-                mAccountManager.addAccountExplicitly(mAccount, null, null);
-            } else if (accounts.length == 1) {
-                mAccount = accounts[0];
-            } else {
-                throw new IllegalStateException();
+    private void setGrantInternal(final SQLiteDatabase db,
+            final int uid, final String alias, final boolean value) {
+        if (value) {
+            if (!hasGrantInternal(db, uid, alias)) {
+                final ContentValues values = new ContentValues();
+                values.put(GRANTS_ALIAS, alias);
+                values.put(GRANTS_GRANTEE_UID, uid);
+                db.insert(TABLE_GRANTS, GRANTS_ALIAS, values);
+            }
+        } else {
+            db.delete(TABLE_GRANTS, SELECT_GRANTS_BY_UID_AND_ALIAS,
+                    new String[]{String.valueOf(uid), alias});
+        }
+    }
+
+    private void removeAllGrants(final SQLiteDatabase db) {
+        db.delete(TABLE_GRANTS, null /* whereClause */, null /* whereArgs */);
+    }
+
+    private class DatabaseHelper extends SQLiteOpenHelper {
+        public DatabaseHelper(Context context) {
+            super(context, DATABASE_NAME, null /* CursorFactory */, DATABASE_VERSION);
+        }
+
+        @Override
+        public void onCreate(final SQLiteDatabase db) {
+            db.execSQL("CREATE TABLE " + TABLE_GRANTS + " (  "
+                    + GRANTS_ALIAS + " STRING NOT NULL,  "
+                    + GRANTS_GRANTEE_UID + " INTEGER NOT NULL,  "
+                    + "UNIQUE (" + GRANTS_ALIAS + "," + GRANTS_GRANTEE_UID + "))");
+        }
+
+        @Override
+        public void onUpgrade(final SQLiteDatabase db, int oldVersion, final int newVersion) {
+            Log.e(TAG, "upgrade from version " + oldVersion + " to version " + newVersion);
+
+            if (oldVersion == 1) {
+                // the first upgrade step goes here
+                oldVersion++;
             }
         }
+    }
+
+    @Override public IBinder onBind(Intent intent) {
         if (IKeyChainService.class.getName().equals(intent.getAction())) {
             return mIKeyChainService;
         }
-        if (AccountManager.ACTION_AUTHENTICATOR_INTENT.equals(intent.getAction())) {
-            return mAuthenticator;
-        }
         return null;
+    }
+
+    @Override
+    protected void onHandleIntent(final Intent intent) {
+        if (Intent.ACTION_PACKAGE_REMOVED.equals(intent.getAction())) {
+            purgeOldGrants();
+        }
+    }
+
+    private void purgeOldGrants() {
+        final PackageManager packageManager = getPackageManager();
+        final SQLiteDatabase db = mDatabaseHelper.getWritableDatabase();
+        Cursor cursor = null;
+        db.beginTransaction();
+        try {
+            cursor = db.query(TABLE_GRANTS,
+                    new String[]{GRANTS_GRANTEE_UID}, null, null, GRANTS_GRANTEE_UID, null, null);
+            while (cursor.moveToNext()) {
+                final int uid = cursor.getInt(0);
+                final boolean packageExists = packageManager.getPackagesForUid(uid) != null;
+                if (packageExists) {
+                    continue;
+                }
+                Log.d(TAG, "deleting grants for UID " + uid
+                        + " because its package is no longer installed");
+                db.delete(TABLE_GRANTS, SELECTION_GRANTS_BY_UID,
+                        new String[]{Integer.toString(uid)});
+            }
+            db.setTransactionSuccessful();
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+            db.endTransaction();
+        }
     }
 }

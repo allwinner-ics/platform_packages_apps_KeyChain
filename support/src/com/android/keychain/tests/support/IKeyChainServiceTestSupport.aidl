@@ -23,9 +23,9 @@ import android.accounts.Account;
  * needs to automate some steps only permissable to the system
  * user. In particular, revokeAppPermission and grantAppPermission
  * must be run within the system_server itself. In a real application,
- * they user is prompted to perform these steps via the
+ * the user is prompted to perform these steps via the
  * com.android.credentials.UNLOCK Intent and
- * GrantCredentialsPermissionActivity.
+ * KeyChainActivity.
  *
  * @hide
  */
@@ -33,6 +33,6 @@ interface IKeyChainServiceTestSupport {
     boolean keystoreReset();
     boolean keystorePassword(String password);
     boolean keystorePut(String key, in byte[] value);
-    void revokeAppPermission(in Account account, String authTokenType, int uid);
-    void grantAppPermission(in Account account, String authTokenType, int uid);
+    void revokeAppPermission(int uid, String alias);
+    void grantAppPermission(int uid, String alias);
 }

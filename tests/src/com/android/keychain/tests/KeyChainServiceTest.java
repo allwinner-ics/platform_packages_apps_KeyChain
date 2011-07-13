@@ -16,19 +16,14 @@
 
 package com.android.keychain.tests;
 
-import android.accounts.Account;
-import android.accounts.AccountManager;
-import android.accounts.AccountManagerFuture;
 import android.app.Service;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
-import android.os.Bundle;
 import android.os.IBinder;
 import android.security.Credentials;
 import android.security.IKeyChainService;
-import android.security.KeyChain;
 import android.security.KeyStore;
 import android.util.Log;
 import com.android.keychain.tests.support.IKeyChainServiceTestSupport;
@@ -147,7 +142,7 @@ public class KeyChainServiceTest extends Service {
             }
             assertNotNull(mSupport);
 
-            Log.d(TAG, "test_KeyChainService setup keystore and AccountManager");
+            Log.d(TAG, "test_KeyChainService setup keystore");
             KeyStore keyStore = KeyStore.getInstance();
             assertTrue(mSupport.keystoreReset());
             assertTrue(mSupport.keystorePassword("newpasswd"));
@@ -195,12 +190,6 @@ public class KeyChainServiceTest extends Service {
                                             Credentials.convertToPem(root2)));
 
             assertEquals(KeyStore.State.UNLOCKED, keyStore.state());
-            AccountManager accountManager = AccountManager.get(KeyChainServiceTest.this);
-            assertNotNull(accountManager);
-            for (Account account : accountManager.getAccountsByType(KeyChain.ACCOUNT_TYPE)) {
-                mSupport.revokeAppPermission(account, alias1, getApplicationInfo().uid);
-                mSupport.revokeAppPermission(account, alias2, getApplicationInfo().uid);
-            }
 
             Log.d(TAG, "test_KeyChainService bind service");
             bindService();
@@ -212,58 +201,29 @@ public class KeyChainServiceTest extends Service {
             }
             assertNotNull(mService);
 
-            Account[] accounts = accountManager.getAccountsByType(KeyChain.ACCOUNT_TYPE);
-            assertNotNull(accounts);
-            assertEquals(1, accounts.length);
-            Account account = accounts[0];
-            Log.d(TAG, "test_KeyChainService getAuthTokenByFeatures for Intent");
-            AccountManagerFuture<Bundle> accountManagerFutureFail
-                    = accountManager.getAuthToken(account, alias1, false, null, null);
-            Bundle bundleFail = accountManagerFutureFail.getResult();
-            assertNotNull(bundleFail);
-            Object intentObject = bundleFail.get(AccountManager.KEY_INTENT);
-            assertNotNull(intentObject);
-            assertTrue(Intent.class.isAssignableFrom(intentObject.getClass()));
-            Intent intent = (Intent) intentObject;
-            assertEquals("android",
-                         intent.getComponent().getPackageName());
-            assertEquals("android.accounts.GrantCredentialsPermissionActivity",
-                         intent.getComponent().getClassName());
-
-            mSupport.grantAppPermission(account, alias1, getApplicationInfo().uid);
+            mSupport.grantAppPermission(getApplicationInfo().uid, alias1);
             // don't grant alias2, so it can be done manually with KeyChainTestActivity
-            Log.d(TAG, "test_KeyChainService getAuthTokenByFeatures for authtoken");
-            AccountManagerFuture<Bundle> accountManagerFuture
-                    = accountManager.getAuthToken(account, alias1, false, null, null);
-            Bundle bundle = accountManagerFuture.getResult();
-            String accountName = bundle.getString(AccountManager.KEY_ACCOUNT_NAME);
-            assertNotNull(accountName);
-            String accountType = bundle.getString(AccountManager.KEY_ACCOUNT_TYPE);
-            assertEquals(KeyChain.ACCOUNT_TYPE, accountType);
-            String authToken = bundle.getString(AccountManager.KEY_AUTHTOKEN);
-            assertNotNull(authToken);
-            assertFalse(authToken.isEmpty());
-
             Log.d(TAG, "test_KeyChainService positive testing");
-            byte[] privateKey = mService.getPrivateKey(alias1, authToken);
+            byte[] privateKey = mService.getPrivateKey(alias1);
             assertNotNull(privateKey);
             assertEquals(Arrays.toString(Credentials.convertToPem(pke1.getPrivateKey())),
                          Arrays.toString(privateKey));
 
-            byte[] certificate = mService.getCertificate(alias1, authToken);
+            byte[] certificate = mService.getCertificate(alias1);
             assertNotNull(certificate);
             assertEquals(Arrays.toString(Credentials.convertToPem(pke1.getCertificate())),
                          Arrays.toString(certificate));
 
             Log.d(TAG, "test_KeyChainService negative testing");
+            mSupport.revokeAppPermission(getApplicationInfo().uid, alias2);
             try {
-                mService.getPrivateKey(alias2, authToken);
+                mService.getPrivateKey(alias2);
                 fail();
             } catch (IllegalStateException expected) {
             }
 
             try {
-                mService.getCertificate(alias2, authToken);
+                mService.getCertificate(alias2);
                 fail();
             } catch (IllegalStateException expected) {
             }

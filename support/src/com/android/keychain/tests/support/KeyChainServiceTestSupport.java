@@ -16,25 +16,18 @@
 
 package com.android.keychain.tests.support;
 
-import android.accounts.Account;
-import android.accounts.AccountManagerService;
 import android.app.Service;
 import android.content.Intent;
 import android.os.IBinder;
+import android.os.RemoteException;
+import android.security.KeyChain;
 import android.security.KeyStore;
 import android.util.Log;
 
 public class KeyChainServiceTestSupport extends Service {
-
-    private static final String TAG = "KeyChainServiceTestSupport";
-
-    private final Object mServiceLock = new Object();
-    private IKeyChainServiceTestSupport mService;
-    private boolean mIsBound;
+    private static final String TAG = "KeyChainServiceTest";
 
     private final KeyStore mKeyStore = KeyStore.getInstance();
-    private final AccountManagerService accountManagerService
-            = AccountManagerService.getSingleton();
 
     private final IKeyChainServiceTestSupport.Stub mIKeyChainServiceTestSupport
             = new IKeyChainServiceTestSupport.Stub() {
@@ -50,13 +43,41 @@ public class KeyChainServiceTestSupport extends Service {
             Log.d(TAG, "keystorePut");
             return mKeyStore.put(key, value);
         }
-        @Override public void revokeAppPermission(Account account, String authTokenType, int uid) {
+
+        @Override public void revokeAppPermission(final int uid, final String alias)
+                throws RemoteException {
             Log.d(TAG, "revokeAppPermission");
-            accountManagerService.revokeAppPermission(account, authTokenType, uid);
+            blockingSetGrantPermission(uid, alias, false);
         }
-        @Override public void grantAppPermission(Account account, String authTokenType, int uid) {
+
+        @Override public void grantAppPermission(final int uid, final String alias)
+                throws RemoteException {
             Log.d(TAG, "grantAppPermission");
-            accountManagerService.grantAppPermission(account, authTokenType, uid);
+            blockingSetGrantPermission(uid, alias, true);
+        }
+
+        /**
+         * Binds to the KeyChainService and requests that permission for the sender to
+         * access the specified alias is granted/revoked.
+         * This method blocks so it must not be called from the UI thread.
+         * @param senderUid
+         * @param alias
+         */
+        private void blockingSetGrantPermission(int senderUid, String alias, boolean value)
+                throws RemoteException {
+            KeyChain.KeyChainConnection connection = null;
+            try {
+                connection = KeyChain.bind(KeyChainServiceTestSupport.this);
+                connection.getService().setGrant(senderUid, alias, value);
+            } catch (InterruptedException e) {
+                // should never happen. if it does we will not grant the requested permission
+                Log.e(TAG, "interrupted while granting access");
+                Thread.currentThread().interrupt();
+            } finally {
+                if (connection != null) {
+                    connection.close();
+                }
+            }
         }
     };
 
